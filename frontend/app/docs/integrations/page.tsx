@@ -99,7 +99,7 @@ export default function IntegrationsDocsPage() {
           </code>{" "}
           and <code className="font-mono">&quot;ACME* SUBSCRIPTION&quot;</code> — these same descriptor strings
           are the join key the{" "}
-          <a href="/docs/risk-monitoring" className="font-medium text-accent underline underline-offset-2">
+          <a href="/docs/risk-monitoring" className="font-medium text-accent-foreground underline underline-offset-2">
             Risk Monitoring
           </a>{" "}
           page filters by, since VAMP/Mastercard chargeback-monitoring programs track ratios per billing
@@ -111,7 +111,7 @@ export default function IntegrationsDocsPage() {
         <h2 className="mb-3 text-lg font-semibold text-foreground">Why Stripe and Solidgate specifically</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           These are the only two PSPs the backend has actually implemented adapters for (see{" "}
-          <a href="/docs/adapters" className="font-medium text-accent underline underline-offset-2">
+          <a href="/docs/adapters" className="font-medium text-accent-foreground underline underline-offset-2">
             PSP adapters &amp; declines
           </a>
           ). <code className="font-mono">ProcessorId</code> in this frontend is intentionally restricted to{" "}

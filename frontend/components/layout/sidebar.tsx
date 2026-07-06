@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { LogoMark } from "@/components/brand/logo-mark";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -31,12 +32,10 @@ export function Sidebar() {
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-border bg-surface">
       <div className="flex items-center gap-2 px-5 py-5">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-sm font-bold text-accent-foreground">
-          PO
-        </div>
+        <LogoMark className="h-8 w-8 shrink-0" />
         <div>
-          <div className="text-sm font-semibold leading-tight">Payment Orchestrator</div>
-          <div className="text-xs text-muted-foreground">Acme Digital Goods</div>
+          <div className="text-sm font-semibold leading-tight">Alpha Payments</div>
+          <div className="text-xs text-muted-foreground">ProgressPartners LLC</div>
         </div>
       </div>
 
@@ -51,7 +50,7 @@ export function Sidebar() {
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-accent/10 text-accent"
+                  ? "bg-accent/10 text-accent-foreground"
                   : "text-muted-foreground hover:bg-neutral-bg hover:text-foreground",
               )}
             >

@@ -29,7 +29,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
           </div>
           <div>
             <div className="text-sm font-semibold leading-tight">Documentation</div>
-            <div className="text-xs text-muted-foreground">Payment Orchestrator</div>
+            <div className="text-xs text-muted-foreground">Alpha Payments</div>
           </div>
         </div>
 
@@ -50,7 +50,7 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
                       className={cn(
                         "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
                         isActive
-                          ? "bg-accent/10 text-accent"
+                          ? "bg-accent/10 text-accent-foreground"
                           : "text-muted-foreground hover:bg-neutral-bg hover:text-foreground",
                       )}
                     >

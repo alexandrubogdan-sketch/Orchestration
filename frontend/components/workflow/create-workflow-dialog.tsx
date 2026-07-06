@@ -70,7 +70,7 @@ export function CreateWorkflowDialog({ onClose }: { onClose: () => void }) {
                       disabled
                         ? "cursor-not-allowed border-border bg-neutral-bg text-muted-foreground"
                         : paymentMethod === method
-                          ? "border-accent bg-accent/10 text-accent"
+                          ? "border-accent-foreground bg-accent/10 text-accent-foreground"
                           : "border-border hover:border-accent",
                     )}
                   >

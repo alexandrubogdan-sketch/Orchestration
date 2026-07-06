@@ -11,12 +11,12 @@ export default function DocsOverviewPage() {
       <DocsHeader
         eyebrow="Introduction"
         title="Overview & architecture"
-        description="What the Payment Orchestrator is, how the pieces fit together, and — since this is an internal build, not a vendor's marketing site — exactly how much of it is wired up today."
+        description="What Alpha Payments is, how the pieces fit together, and — since this is an internal build, not a vendor's marketing site — exactly how much of it is wired up today."
       />
 
       <section className="mb-10 space-y-4">
         <p className="text-sm leading-relaxed text-muted-foreground">
-          The Payment Orchestrator is an in-house payment orchestration layer for a digital-goods
+          Alpha Payments is an in-house payment orchestration layer for a digital-goods
           company operating multiple products across two legal entities (<code className="rounded bg-neutral-bg px-1 py-0.5 text-xs font-mono">US-LLC</code> and{" "}
           <code className="rounded bg-neutral-bg px-1 py-0.5 text-xs font-mono">EU-BV</code>), processing through
           multiple PSPs — Stripe first, Solidgate second, with Adyen and Netevia intended later behind the
@@ -84,7 +84,7 @@ export default function DocsOverviewPage() {
         <code className="font-mono">lib/risk-monitoring.ts</code> for the risk tiers). There is currently no
         live fetch against the backend&apos;s API anywhere in this codebase. The backend itself is functionally
         complete, but the two were never wired together. See{" "}
-        <Link href="/docs/deployment" className="font-medium text-accent underline underline-offset-2">
+        <Link href="/docs/deployment" className="font-medium text-accent-foreground underline underline-offset-2">
           Deployment
         </Link>{" "}
         for exactly what that means for the live, deployed version of this app, and each page&apos;s own docs

@@ -9,7 +9,7 @@ const TONE_CLASSES: Record<BadgeTone, string> = {
   danger: "bg-danger-bg text-danger",
   info: "bg-info-bg text-info",
   neutral: "bg-neutral-bg text-muted-foreground",
-  accent: "bg-accent/10 text-accent",
+  accent: "bg-accent/10 text-accent-foreground",
 };
 
 export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {

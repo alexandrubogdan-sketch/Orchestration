@@ -42,7 +42,7 @@ export function NodePicker({
     <div ref={ref} className="relative inline-block">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-dashed border-border bg-surface text-muted-foreground shadow-sm hover:border-accent hover:text-accent"
+        className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-dashed border-border bg-surface text-muted-foreground shadow-sm hover:border-accent-foreground hover:text-accent-foreground"
         title="Add a condition or action"
       >
         <Plus className="h-4 w-4" />

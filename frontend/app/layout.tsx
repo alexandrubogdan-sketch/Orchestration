@@ -11,7 +11,7 @@ import "./globals.css";
 // egress and the exact typeface matters.
 
 export const metadata: Metadata = {
-  title: "Payment Orchestrator",
+  title: "Alpha Payments",
   description: "Internal payment orchestration dashboard",
 };
 

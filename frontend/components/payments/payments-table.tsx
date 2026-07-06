@@ -85,7 +85,7 @@ export function PaymentsTable({ payments }: { payments: Payment[] }) {
             {filtered.slice(0, 100).map((payment) => (
               <TR key={payment.id}>
                 <TD>
-                  <Link href={`/payments/${payment.id}`} className="font-mono text-xs text-accent hover:underline">
+                  <Link href={`/payments/${payment.id}`} className="font-mono text-xs text-accent-foreground hover:underline">
                     {payment.id}
                   </Link>
                 </TD>

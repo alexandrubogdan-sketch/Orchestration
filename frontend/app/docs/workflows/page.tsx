@@ -21,7 +21,7 @@ export default function WorkflowsDocsPage() {
         Milestone 5 routing engine. The backend&apos;s real <code className="font-mono">routing_rules</code>{" "}
         table (see{" "}
         <a
-          className="font-medium text-accent underline underline-offset-2"
+          className="font-medium text-accent-foreground underline underline-offset-2"
           href="#backend-routing"
         >
           Backend routing, below

@@ -8,7 +8,7 @@ const TONE_CLASSES: Record<CalloutTone, string> = {
   info: "border-info/30 bg-info-bg text-info",
   warning: "border-warning/30 bg-warning-bg text-warning",
   danger: "border-danger/30 bg-danger-bg text-danger",
-  tip: "border-accent/30 bg-accent/10 text-accent",
+  tip: "border-accent/30 bg-accent/10 text-accent-foreground",
 };
 
 const TONE_ICON: Record<CalloutTone, typeof Info> = {
