@@ -47,4 +47,9 @@ RUN npm ci --legacy-peer-deps --include=dev
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/db ./db
 USER node
-CMD ["node", "dist/api/server.js"]
+# tsconfig.json's rootDir is "." (not "src"), so tsc preserves the src/
+# prefix on emit: the compiled entry point is dist/src/api/server.js, not
+# dist/api/server.js. This only ever surfaced once this image was actually
+# run (Railway), since local dev/tests run via tsx against the .ts sources
+# directly and never exercised this exact compiled path.
+CMD ["node", "dist/src/api/server.js"]
