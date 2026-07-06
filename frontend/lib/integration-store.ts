@@ -3,6 +3,10 @@ import type { Integration, IntegrationMode, ProcessorId } from "./types";
 import { PROCESSOR_CREDENTIAL_FIELDS } from "./types";
 import { defaultIntegrations } from "./mock-data";
 
+function randomId(prefix: string): string {
+  return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
 interface IntegrationStoreState {
   integrations: Integration[];
   /** Mock-only: stores nothing server-side, just flips local state so the
@@ -18,6 +22,14 @@ interface IntegrationStoreState {
     credentials: Record<string, string>,
   ) => void;
   disconnect: (id: string) => void;
+  /** Creates a new, not-yet-connected integration instance for a processor.
+   *  Unlike the original one-card-per-processor model, any processor can
+   *  have any number of instances (e.g. three separate Stripe accounts for
+   *  three merchant entities) — displayName is what tells them apart in the
+   *  Workflow builder's processor pickers. Returns the new id so the caller
+   *  can immediately open the connect dialog for it. */
+  addIntegration: (processor: ProcessorId, displayName: string) => string;
+  removeIntegration: (id: string) => void;
   reset: () => void;
 }
 
@@ -69,6 +81,20 @@ export const useIntegrationStore = create<IntegrationStoreState>((set) => ({
           : i,
       ),
     })),
+
+  addIntegration: (processor, displayName) => {
+    const id = randomId("integration");
+    set((state) => ({
+      integrations: [
+        ...state.integrations,
+        { id, processor, displayName, status: "not_connected" },
+      ],
+    }));
+    return id;
+  },
+
+  removeIntegration: (id) =>
+    set((state) => ({ integrations: state.integrations.filter((i) => i.id !== id) })),
 
   reset: () => set({ integrations: defaultIntegrations() }),
 }));

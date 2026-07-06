@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Download, X } from "lucide-react";
+import { ArrowLeft, Check, Download, LayoutGrid, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PAYMENT_METHOD_LABELS } from "@/lib/types";
@@ -10,10 +10,31 @@ import { useWorkflowStore } from "@/lib/workflow-store";
 
 export function BuilderToolbar({ workflowId }: { workflowId: string }) {
   const workflow = useWorkflowStore((s) => s.workflows.find((w) => w.id === workflowId));
-  const togglePublish = useWorkflowStore((s) => s.togglePublish);
+  const setWorkflowState = useWorkflowStore((s) => s.setWorkflowState);
+  const requestRelayout = useWorkflowStore((s) => s.requestRelayout);
   const [jsonOpen, setJsonOpen] = useState(false);
+  // Every edit already commits straight to the store (no separate
+  // draft/dirty buffer), so "Save" here means "confirm the current state
+  // as a draft/published snapshot" — this brief checkmark is the feedback
+  // loop that mental model needs, since there's no unsaved-changes badge
+  // to watch instead.
+  const [savedLabel, setSavedLabel] = useState<string | null>(null);
+  const savedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (savedTimeoutRef.current) clearTimeout(savedTimeoutRef.current);
+    };
+  }, []);
 
   if (!workflow) return null;
+
+  function saveAs(label: string, state: "draft" | "published") {
+    setWorkflowState(workflow!.id, state);
+    setSavedLabel(label);
+    if (savedTimeoutRef.current) clearTimeout(savedTimeoutRef.current);
+    savedTimeoutRef.current = setTimeout(() => setSavedLabel(null), 1800);
+  }
 
   return (
     <>
@@ -27,11 +48,28 @@ export function BuilderToolbar({ workflowId }: { workflowId: string }) {
         </div>
         <Badge tone={workflow.state === "published" ? "success" : "neutral"}>{workflow.state}</Badge>
 
+        {savedLabel ? (
+          <span className="flex items-center gap-1 text-xs font-medium text-success">
+            <Check className="h-3.5 w-3.5" /> {savedLabel}
+          </span>
+        ) : null}
+
         <div className="ml-auto flex items-center gap-2">
-          <Button size="sm" variant="outline" onClick={() => togglePublish(workflow.id)}>
-            {workflow.state === "published" ? "Unpublish" : "Publish"}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => requestRelayout(workflow.id)}
+            title="Reset dragged nodes back to the automatic layout"
+          >
+            <LayoutGrid className="h-3.5 w-3.5" /> Rearrange
           </Button>
-          <Button size="sm" onClick={() => setJsonOpen(true)}>
+          <Button size="sm" variant="outline" onClick={() => saveAs("Saved as draft", "draft")}>
+            Save as draft
+          </Button>
+          <Button size="sm" onClick={() => saveAs("Published", "published")}>
+            Publish
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => setJsonOpen(true)}>
             <Download className="h-3.5 w-3.5" /> Export config
           </Button>
         </div>

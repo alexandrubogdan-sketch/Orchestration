@@ -1,21 +1,30 @@
 "use client";
 
 import { useState } from "react";
-import { Plug, Zap } from "lucide-react";
+import { Plug, Plus, Trash2, Zap } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ConnectDialog } from "@/components/integrations/connect-dialog";
+import { AddIntegrationDialog } from "@/components/integrations/add-integration-dialog";
 import { useIntegrationStore } from "@/lib/integration-store";
 import { formatDate } from "@/lib/utils";
-import { PROCESSOR_CREDENTIAL_FIELDS, type Integration, type IntegrationMode } from "@/lib/types";
+import {
+  PROCESSOR_CREDENTIAL_FIELDS,
+  type Integration,
+  type IntegrationMode,
+  type ProcessorId,
+} from "@/lib/types";
 
 export default function IntegrationsPage() {
   const integrations = useIntegrationStore((s) => s.integrations);
   const connect = useIntegrationStore((s) => s.connect);
   const disconnect = useIntegrationStore((s) => s.disconnect);
+  const addIntegration = useIntegrationStore((s) => s.addIntegration);
+  const removeIntegration = useIntegrationStore((s) => s.removeIntegration);
   const [connecting, setConnecting] = useState<Integration | null>(null);
+  const [addingOpen, setAddingOpen] = useState(false);
 
   return (
     <>
@@ -24,9 +33,22 @@ export default function IntegrationsPage() {
         description="Connect processors — used by Authorize Payment actions in Workflows"
       />
       <div className="flex-1 overflow-y-auto p-8">
+        <div className="mb-4 flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">{integrations.length} integration(s)</span>
+          <Button size="sm" onClick={() => setAddingOpen(true)}>
+            <Plus className="h-3.5 w-3.5" /> Add integration
+          </Button>
+        </div>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {integrations.map((integration) => (
-            <Card key={integration.id}>
+            <Card key={integration.id} className="group relative">
+              <button
+                onClick={() => removeIntegration(integration.id)}
+                title="Remove integration"
+                className="absolute right-3 top-3 text-muted-foreground opacity-0 transition-opacity hover:text-danger group-hover:opacity-100"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
               <CardContent className="flex flex-col gap-3">
                 <div className="flex items-center gap-2">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10 text-accent">
@@ -94,6 +116,14 @@ export default function IntegrationsPage() {
             connect(connecting.id, connecting.processor, mode, credentials)
           }
           onClose={() => setConnecting(null)}
+        />
+      ) : null}
+
+      {addingOpen ? (
+        <AddIntegrationDialog
+          existingDisplayNames={integrations.map((i) => i.displayName)}
+          onAdd={(processor: ProcessorId, displayName: string) => addIntegration(processor, displayName)}
+          onClose={() => setAddingOpen(false)}
         />
       ) : null}
     </>

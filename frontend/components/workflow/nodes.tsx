@@ -28,7 +28,14 @@ const cardClass = (selected: boolean) =>
   cn(
     "w-80 overflow-hidden rounded-xl border bg-card text-xs shadow-sm transition-all",
     "hover:shadow-md hover:border-primary/40",
-    selected ? "border-primary ring-2 ring-primary/40 shadow-md" : "border-border",
+    // Full-opacity ring + offset so the selected state reads clearly in
+    // both themes — a low-opacity ring (the previous `ring-primary/40`)
+    // washes out to near-invisible light gray against a light card and to
+    // a muddy purple against a dark one, which is exactly the contrast
+    // bug this replaces.
+    selected
+      ? "border-primary ring-2 ring-primary ring-offset-2 ring-offset-background shadow-lg"
+      : "border-border",
   );
 
 const headerClass = "flex items-center gap-2 px-3 py-2.5 border-b border-border";

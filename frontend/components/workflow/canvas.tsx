@@ -25,8 +25,14 @@ function WorkflowCanvasInner({ workflow }: { workflow: Workflow }) {
   const { fitView } = useReactFlow();
   // Tracks which workflow id we've already fit the view for, so ELK
   // relayouts triggered by editing a node don't yank the user's pan/zoom —
-  // we only auto-fit the very first time a given workflow is laid out.
+  // we only auto-fit the very first time a given workflow is laid out (or
+  // right after an explicit "Rearrange").
   const fitDoneForWorkflowRef = useRef<string | null>(null);
+  // "Rearrange" button in BuilderToolbar bumps this via requestRelayout —
+  // when it changes, drop every manually-dragged position so the next
+  // layout pass is a clean ELK auto-layout instead of respecting drags.
+  const relayoutTick = useWorkflowStore((s) => s.relayoutRequests[workflow.id] ?? 0);
+  const prevRelayoutTickRef = useRef(relayoutTick);
 
   // Rebuild whenever the chain changes (node added/removed/edited), but
   // keep any position the user has already dragged a node to — same
@@ -39,6 +45,12 @@ function WorkflowCanvasInner({ workflow }: { workflow: Workflow }) {
   // newer workflow/edit supersedes it or after unmount.
   useEffect(() => {
     let ignore = false;
+    const rearranged = relayoutTick !== prevRelayoutTickRef.current;
+    if (rearranged) {
+      prevRelayoutTickRef.current = relayoutTick;
+      positionsRef.current.clear();
+      fitDoneForWorkflowRef.current = null;
+    }
 
     async function runLayout() {
       const { nodes: builtNodes, edges: builtEdges } = await buildWorkflowGraph(workflow);
@@ -62,7 +74,7 @@ function WorkflowCanvasInner({ workflow }: { workflow: Workflow }) {
     return () => {
       ignore = true;
     };
-  }, [workflow, setNodes, setEdges, fitView]);
+  }, [workflow, setNodes, setEdges, fitView, relayoutTick]);
 
   return (
     <ReactFlow

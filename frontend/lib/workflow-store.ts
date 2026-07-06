@@ -1,5 +1,12 @@
 import { create } from "zustand";
-import type { PaymentMethodType, Workflow, WorkflowAction, WorkflowCondition, WorkflowNode } from "./types";
+import type {
+  PaymentMethodType,
+  Workflow,
+  WorkflowAction,
+  WorkflowCondition,
+  WorkflowNode,
+  WorkflowState,
+} from "./types";
 import { defaultWorkflows } from "./mock-data";
 
 function randomId(prefix: string): string {
@@ -8,11 +15,20 @@ function randomId(prefix: string): string {
 
 interface WorkflowStoreState {
   workflows: Workflow[];
+  /** Bumped per-workflow by requestRelayout — WorkflowCanvas watches this
+   *  to know when to discard manually-dragged node positions and re-run
+   *  the ELK auto-layout from scratch ("Rearrange" button). */
+  relayoutRequests: Record<string, number>;
 
   createWorkflow: (paymentMethod: PaymentMethodType, name: string) => string;
   deleteWorkflow: (workflowId: string) => void;
   renameWorkflow: (workflowId: string, name: string) => void;
   togglePublish: (workflowId: string) => void;
+  /** Explicit draft/published set, for the toolbar's "Save as Draft" /
+   *  "Publish" buttons — separate from togglePublish so each button has
+   *  an unambiguous outcome regardless of current state. */
+  setWorkflowState: (workflowId: string, state: WorkflowState) => void;
+  requestRelayout: (workflowId: string) => void;
 
   /** Appends a new node to the end of the chain (after the current last node). */
   addNode: (workflowId: string, node: Omit<WorkflowNode, "id">) => void;
@@ -33,6 +49,7 @@ function mapWorkflows(
 
 export const useWorkflowStore = create<WorkflowStoreState>((set) => ({
   workflows: defaultWorkflows(),
+  relayoutRequests: {},
 
   createWorkflow: (paymentMethod, name) => {
     const id = randomId("workflow");
@@ -67,6 +84,23 @@ export const useWorkflowStore = create<WorkflowStoreState>((set) => ({
         state: w.state === "published" ? "draft" : "published",
         updatedAt: new Date().toISOString(),
       })),
+    })),
+
+  setWorkflowState: (workflowId, nextState) =>
+    set((state) => ({
+      workflows: mapWorkflows(state.workflows, workflowId, (w) => ({
+        ...w,
+        state: nextState,
+        updatedAt: new Date().toISOString(),
+      })),
+    })),
+
+  requestRelayout: (workflowId) =>
+    set((state) => ({
+      relayoutRequests: {
+        ...state.relayoutRequests,
+        [workflowId]: (state.relayoutRequests[workflowId] ?? 0) + 1,
+      },
     })),
 
   addNode: (workflowId, node) =>

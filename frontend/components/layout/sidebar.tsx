@@ -10,6 +10,7 @@ import {
   Workflow,
   Building2,
   ShieldAlert,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -21,6 +22,7 @@ const NAV_ITEMS = [
   { href: "/integrations", label: "Integrations", icon: Plug },
   { href: "/workflows", label: "Workflows", icon: Workflow },
   { href: "/risk-monitoring", label: "Risk Monitoring", icon: ShieldAlert },
+  { href: "/docs", label: "Docs", icon: BookOpen },
 ];
 
 export function Sidebar() {
