@@ -23,7 +23,12 @@ ENV NODE_ENV=production
 # `npm install` (used locally/in dev) tolerates this; `npm ci` (strict) does
 # not, which only surfaced once this Dockerfile was actually built for a
 # real deploy (Railway) rather than just `next build`/`tsc` locally.
-RUN npm ci --legacy-peer-deps
+#
+# --include=dev: npm treats a NODE_ENV=production env var (set above) as an
+# implicit --omit=dev on `npm ci`/`npm install`, even without the flag. That
+# silently dropped `typescript` here, breaking `tsc` in the next step
+# ("tsc: not found") the first time this stage was ever actually built.
+RUN npm ci --legacy-peer-deps --include=dev
 COPY . .
 RUN npm run build
 
@@ -36,7 +41,9 @@ COPY package.json package-lock.json* ./
 # container's private-network DATABASE_URL (e.g. via Railway's Console tab)
 # without needing a separate migration image. Small size tradeoff, worth it
 # for an ops task that only needs to exist at all, not be fast.
-RUN npm ci --legacy-peer-deps
+# --include=dev overrides the NODE_ENV=production-implied --omit=dev above —
+# see the matching comment in the `build` stage for why that flag is needed.
+RUN npm ci --legacy-peer-deps --include=dev
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/db ./db
 USER node
