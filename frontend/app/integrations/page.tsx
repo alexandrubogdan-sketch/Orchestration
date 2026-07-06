@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { ConnectDialog } from "@/components/integrations/connect-dialog";
 import { useIntegrationStore } from "@/lib/integration-store";
 import { formatDate } from "@/lib/utils";
-import type { Integration } from "@/lib/types";
+import { PROCESSOR_CREDENTIAL_FIELDS, type Integration, type IntegrationMode } from "@/lib/types";
 
 export default function IntegrationsPage() {
   const integrations = useIntegrationStore((s) => s.integrations);
@@ -34,21 +34,38 @@ export default function IntegrationsPage() {
                   </div>
                   <div>
                     <div className="text-sm font-semibold">{integration.displayName}</div>
-                    <Badge tone={integration.status === "connected" ? "success" : "neutral"}>
-                      {integration.status === "connected" ? "Connected" : "Not connected"}
-                    </Badge>
+                    <div className="flex items-center gap-1.5">
+                      <Badge tone={integration.status === "connected" ? "success" : "neutral"}>
+                        {integration.status === "connected" ? "Connected" : "Not connected"}
+                      </Badge>
+                      {integration.mode ? <Badge tone="info">{integration.mode}</Badge> : null}
+                    </div>
                   </div>
                 </div>
 
                 {integration.status === "connected" ? (
-                  <div className="flex flex-col gap-1 text-xs text-muted">
-                    <span className="font-mono">{integration.keyPreview}</span>
+                  <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+                    {PROCESSOR_CREDENTIAL_FIELDS[integration.processor].map((field) => (
+                      <div key={field.key} className="flex justify-between gap-2 font-mono">
+                        <span className="text-muted-foreground">{field.label}</span>
+                        <span>{integration.credentialPreviews?.[field.key] ?? "—"}</span>
+                      </div>
+                    ))}
+                    {integration.descriptors?.length ? (
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {integration.descriptors.map((descriptor) => (
+                          <Badge key={descriptor} tone="neutral">
+                            {descriptor}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : null}
                     {integration.connectedAt ? (
                       <span>Connected {formatDate(integration.connectedAt)}</span>
                     ) : null}
                   </div>
                 ) : (
-                  <span className="flex items-center gap-1 text-xs text-muted">
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
                     <Zap className="h-3 w-3" /> Available for use in Workflow actions once connected
                   </span>
                 )}
@@ -73,7 +90,9 @@ export default function IntegrationsPage() {
       {connecting ? (
         <ConnectDialog
           integration={connecting}
-          onConnect={(apiKey) => connect(connecting.id, apiKey)}
+          onConnect={(mode: IntegrationMode, credentials: Record<string, string>) =>
+            connect(connecting.id, connecting.processor, mode, credentials)
+          }
           onClose={() => setConnecting(null)}
         />
       ) : null}

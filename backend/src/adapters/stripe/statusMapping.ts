@@ -57,6 +57,35 @@ export function extractRawDeclineCode(
 }
 
 /**
+ * Maps the workflow's PayNext-modeled 3DS mode to Stripe's
+ * `payment_method_options.card.request_three_d_secure` — confirmed
+ * accepted values `automatic` | `any` | `challenge` (docs.stripe.com/api/payment_intents/confirm,
+ * search-verified this session, not recalled from training data):
+ * `any` is Stripe's own documented "preference for a frictionless flow",
+ * `challenge` the inverse preference, `automatic` its risk-based default.
+ *
+ * `adaptive` -> `automatic` (both are "let risk/issuer requirements
+ * decide"). `frictionless` -> `any` (both prefer no challenge).
+ * `no_3ds`/`undefined` -> `undefined` (omit the param) — Stripe has no
+ * request-level "never run 3DS" override; see CreatePaymentInput.threeDsMode's
+ * docblock in src/adapters/types.ts for why this is a real gap, not an
+ * oversight in this mapping.
+ */
+export function mapThreeDsModeToStripe(
+  threeDsMode: 'no_3ds' | 'adaptive' | 'frictionless' | undefined,
+): Stripe.PaymentIntentCreateParams.PaymentMethodOptions.Card.RequestThreeDSecure | undefined {
+  switch (threeDsMode) {
+    case 'adaptive':
+      return 'automatic';
+    case 'frictionless':
+      return 'any';
+    case 'no_3ds':
+    case undefined:
+      return undefined;
+  }
+}
+
+/**
  * Looks up a raw Stripe code against the in-memory decline map (loaded
  * from `decline_code_map` at adapter construction — see
  * src/adapters/stripe/index.ts) and falls back to `unmappedDecline`,

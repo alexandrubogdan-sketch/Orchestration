@@ -1,13 +1,40 @@
 @import "tailwindcss";
 
+/*
+ * shadcn/ui-style CSS variable theme (zinc palette), extended with this
+ * project's own semantic tone tokens (success/warning/danger/info) so
+ * existing components (Badge's `tone` prop, status pills) keep working
+ * unchanged. `.dark` mirrors every token — see components/theme-provider.tsx
+ * for how the class gets toggled (next-themes, class strategy).
+ */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
+  --radius: 0.625rem;
+
   --background: #f7f8fa;
-  --surface: #ffffff;
   --foreground: #14161a;
-  --muted: #6b7280;
+  --card: #ffffff;
+  --card-foreground: #14161a;
+  --popover: #ffffff;
+  --popover-foreground: #14161a;
+  --primary: #4f46e5;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #14161a;
+  --muted: #f1f5f9;
+  --muted-foreground: #6b7280;
+  --accent: #eef2ff;
+  --accent-foreground: #4f46e5;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
   --border: #e5e7eb;
-  --accent: #4f46e5;
-  --accent-foreground: #ffffff;
+  --input: #e5e7eb;
+  --ring: #4f46e5;
+
+  /* legacy aliases still referenced directly in a few places */
+  --surface: var(--card);
+
   --success: #16a34a;
   --success-bg: #dcfce7;
   --warning: #d97706;
@@ -19,14 +46,67 @@
   --neutral-bg: #f1f5f9;
 }
 
+.dark {
+  --background: #0b0c0f;
+  --foreground: #e6e8eb;
+  --card: #14161a;
+  --card-foreground: #e6e8eb;
+  --popover: #14161a;
+  --popover-foreground: #e6e8eb;
+  --primary: #818cf8;
+  --primary-foreground: #0b0c0f;
+  --secondary: #1c1f26;
+  --secondary-foreground: #e6e8eb;
+  --muted: #1c1f26;
+  --muted-foreground: #9ba1ac;
+  --accent: #1e1b4b;
+  --accent-foreground: #a5b4fc;
+  --destructive: #f87171;
+  --destructive-foreground: #0b0c0f;
+  --border: #262932;
+  --input: #262932;
+  --ring: #818cf8;
+
+  --surface: var(--card);
+
+  --success: #4ade80;
+  --success-bg: #052e16;
+  --warning: #fbbf24;
+  --warning-bg: #451a03;
+  --danger: #f87171;
+  --danger-bg: #450a0a;
+  --info: #60a5fa;
+  --info-bg: #0c2444;
+  --neutral-bg: #1c1f26;
+}
+
 @theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
   --color-background: var(--background);
-  --color-surface: var(--surface);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
-  --color-border: var(--border);
+  --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-surface: var(--surface);
   --color-success: var(--success);
   --color-success-bg: var(--success-bg);
   --color-warning: var(--warning);
@@ -36,6 +116,7 @@
   --color-info: var(--info);
   --color-info-bg: var(--info-bg);
   --color-neutral-bg: var(--neutral-bg);
+
   --font-sans:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --font-mono:
@@ -53,7 +134,7 @@ body {
   height: 8px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #d1d5db;
+  background: var(--border);
   border-radius: 9999px;
 }
 

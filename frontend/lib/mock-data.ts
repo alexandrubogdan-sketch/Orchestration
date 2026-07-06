@@ -281,7 +281,13 @@ export function defaultIntegrations(): Integration[] {
       displayName: "Stripe",
       status: "connected",
       connectedAt: daysAgoIso(120, mulberry32(4)),
-      keyPreview: "sk_test_••••4242",
+      mode: "sandbox",
+      credentialPreviews: {
+        publishableKey: "pk_test_51NxQ2K...",
+        secretKey: "••••4242",
+        webhookSecret: "••••9f01",
+      },
+      descriptors: ["ACME DIGITAL", "ACME* SUBSCRIPTION"],
     },
     {
       id: "integration-solidgate",

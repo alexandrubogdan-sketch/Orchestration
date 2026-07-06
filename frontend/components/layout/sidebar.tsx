@@ -9,8 +9,10 @@ import {
   Plug,
   Workflow,
   Building2,
+  ShieldAlert,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -18,6 +20,7 @@ const NAV_ITEMS = [
   { href: "/plans", label: "Plans", icon: Repeat },
   { href: "/integrations", label: "Integrations", icon: Plug },
   { href: "/workflows", label: "Workflows", icon: Workflow },
+  { href: "/risk-monitoring", label: "Risk Monitoring", icon: ShieldAlert },
 ];
 
 export function Sidebar() {
@@ -57,9 +60,12 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="flex items-center gap-2 border-t border-border px-5 py-4 text-xs text-muted">
-        <Building2 className="h-4 w-4" />
-        US-LLC &amp; EU-BV
+      <div className="flex items-center justify-between gap-2 border-t border-border px-5 py-4 text-xs text-muted">
+        <span className="flex items-center gap-2">
+          <Building2 className="h-4 w-4" />
+          US-LLC &amp; EU-BV
+        </span>
+        <ThemeToggle />
       </div>
     </aside>
   );

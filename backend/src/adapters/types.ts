@@ -71,6 +71,21 @@ export interface CreatePaymentInput {
    * a field Solidgate's API documents as required.
    */
   customerEmail?: string | undefined;
+  /**
+   * Frontend workflow "3D Secure" action setting (docs.paynext.com/guides/payments/3d-secure's
+   * three modes) — optional, defaults to PSP-native behavior if omitted.
+   * `StripeAdapter` maps this to `payment_method_options.card.request_three_d_secure`
+   * (confirmed values `automatic`/`any`/`challenge` — docs.stripe.com/api/payment_intents/confirm,
+   * search-verified this session): `adaptive` -> `automatic` (Stripe's own
+   * risk-based default), `frictionless` -> `any` (Stripe's own docs describe
+   * `any` as "a preference for a frictionless flow"). FLAGGED: Stripe has no
+   * request-level way to force-skip issuer-mandated 3DS, so `no_3ds` maps to
+   * omitting the parameter entirely (Stripe's default risk assessment) rather
+   * than a genuine hard override — this is a real product gap, not a bug in
+   * this mapping, and should be called out wherever the workflow's "No 3DS"
+   * option is surfaced for a Stripe-routed payment.
+   */
+  threeDsMode?: 'no_3ds' | 'adaptive' | 'frictionless' | undefined;
 }
 
 export interface AttemptResult {

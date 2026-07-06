@@ -2,6 +2,7 @@
 
 import { Handle, Position, type NodeProps, type Node } from "@xyflow/react";
 import { CreditCard, Trash2, GitBranch, Zap } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Select } from "@/components/ui/input";
 import { NodePicker } from "@/components/workflow/node-picker";
 import { defaultActionFor, defaultConditionFor, useWorkflowStore } from "@/lib/workflow-store";
@@ -21,46 +22,79 @@ import {
   type WorkflowNode as WorkflowNodeType,
 } from "@/lib/types";
 
-const cardClass =
-  "w-80 rounded-xl border border-border bg-surface shadow-md overflow-hidden text-xs";
-const headerClass =
-  "flex items-center gap-1.5 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide";
+// Keep in sync with NODE_WIDTH in lib/workflow-graph.ts — that's what ELK
+// lays the graph out against, so the rendered card width must match.
+const cardClass = (selected: boolean) =>
+  cn(
+    "w-80 overflow-hidden rounded-xl border bg-card text-xs shadow-sm transition-all",
+    "hover:shadow-md hover:border-primary/40",
+    selected ? "border-primary ring-2 ring-primary/40 shadow-md" : "border-border",
+  );
+
+const headerClass = "flex items-center gap-2 px-3 py-2.5 border-b border-border";
+
+const iconBadgeClass = (tone: "primary" | "info" | "success") =>
+  cn(
+    "flex h-6 w-6 shrink-0 items-center justify-center rounded-md",
+    tone === "primary" && "bg-primary/10 text-primary",
+    tone === "info" && "bg-info-bg text-info",
+    tone === "success" && "bg-success-bg text-success",
+  );
+
+const labelClass = "text-[11px] font-semibold tracking-wide text-foreground";
+
+// Small, visible, colored circular handles — distinct per handle type so
+// the canvas reads as a real node-graph instead of a stack of disconnected
+// cards. Source/target and Top/Bottom semantics are unchanged (vertical chain).
+const targetHandleClass =
+  "!h-2.5 !w-2.5 !rounded-full !border-2 !border-background !bg-muted-foreground/60";
+const sourceHandleClass =
+  "!h-2.5 !w-2.5 !rounded-full !border-2 !border-background !bg-primary";
 
 export type WorkflowNodeData = { workflowId: string; node: WorkflowNodeType };
 export type AddNodeData = { workflowId: string };
 
-export function TriggerNodeView({ data }: NodeProps<Node<WorkflowNodeData>>) {
+export function TriggerNodeView({ data, selected }: NodeProps<Node<WorkflowNodeData>>) {
   const paymentMethod = data.node.paymentMethod as PaymentMethodType;
   return (
-    <div className={cardClass}>
-      <div className={`${headerClass} bg-accent/10 text-accent`}>
-        <CreditCard className="h-3.5 w-3.5" />
-        Payment Create
+    <div className={cardClass(selected)}>
+      <div className={cn(headerClass, "bg-primary/5")}>
+        <span className={iconBadgeClass("primary")}>
+          <CreditCard className="h-3.5 w-3.5" />
+        </span>
+        <span className={labelClass}>Payment Create</span>
+        <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-primary">
+          Start
+        </span>
       </div>
       <div className="flex flex-col gap-1 p-3">
         <span className="text-muted">Payment method</span>
-        <span className="text-sm font-medium">{PAYMENT_METHOD_LABELS[paymentMethod]}</span>
+        <span className="text-sm font-medium text-foreground">
+          {PAYMENT_METHOD_LABELS[paymentMethod]}
+        </span>
         <span className="text-[11px] text-muted">
           Every payment for this method starts here — this trigger can&apos;t be removed.
         </span>
       </div>
-      <Handle type="source" position={Position.Bottom} className="!opacity-0" />
+      <Handle type="source" position={Position.Bottom} className={sourceHandleClass} />
     </div>
   );
 }
 
-export function ConditionNodeView({ data }: NodeProps<Node<WorkflowNodeData>>) {
+export function ConditionNodeView({ data, selected }: NodeProps<Node<WorkflowNodeData>>) {
   const { workflowId, node } = data;
   const condition = node.condition as WorkflowCondition;
   const updateCondition = useWorkflowStore((s) => s.updateCondition);
   const removeNode = useWorkflowStore((s) => s.removeNode);
 
   return (
-    <div className={cardClass}>
-      <Handle type="target" position={Position.Top} className="!opacity-0" />
-      <div className={`${headerClass} bg-info-bg text-info`}>
-        <GitBranch className="h-3.5 w-3.5" />
-        Condition
+    <div className={cardClass(selected)}>
+      <Handle type="target" position={Position.Top} className={targetHandleClass} />
+      <div className={cn(headerClass, "bg-info-bg/40")}>
+        <span className={iconBadgeClass("info")}>
+          <GitBranch className="h-3.5 w-3.5" />
+        </span>
+        <span className={labelClass}>Condition</span>
         <button
           onClick={() => removeNode(workflowId, node.id)}
           className="ml-auto text-muted hover:text-danger"
@@ -119,23 +153,25 @@ export function ConditionNodeView({ data }: NodeProps<Node<WorkflowNodeData>>) {
           />
         </div>
       </div>
-      <Handle type="source" position={Position.Bottom} className="!opacity-0" />
+      <Handle type="source" position={Position.Bottom} className={sourceHandleClass} />
     </div>
   );
 }
 
-export function ActionNodeView({ data }: NodeProps<Node<WorkflowNodeData>>) {
+export function ActionNodeView({ data, selected }: NodeProps<Node<WorkflowNodeData>>) {
   const { workflowId, node } = data;
   const action = node.action as WorkflowAction;
   const updateAction = useWorkflowStore((s) => s.updateAction);
   const removeNode = useWorkflowStore((s) => s.removeNode);
 
   return (
-    <div className={cardClass}>
-      <Handle type="target" position={Position.Top} className="!opacity-0" />
-      <div className={`${headerClass} bg-success-bg text-success`}>
-        <Zap className="h-3.5 w-3.5" />
-        {WORKFLOW_ACTION_LABELS[action.type]}
+    <div className={cardClass(selected)}>
+      <Handle type="target" position={Position.Top} className={targetHandleClass} />
+      <div className={cn(headerClass, "bg-success-bg/40")}>
+        <span className={iconBadgeClass("success")}>
+          <Zap className="h-3.5 w-3.5" />
+        </span>
+        <span className={labelClass}>{WORKFLOW_ACTION_LABELS[action.type]}</span>
         <button
           onClick={() => removeNode(workflowId, node.id)}
           className="ml-auto text-muted hover:text-danger"
@@ -259,7 +295,7 @@ export function ActionNodeView({ data }: NodeProps<Node<WorkflowNodeData>>) {
           <span className="text-muted">No configuration needed.</span>
         ) : null}
       </div>
-      <Handle type="source" position={Position.Bottom} className="!opacity-0" />
+      <Handle type="source" position={Position.Bottom} className={sourceHandleClass} />
     </div>
   );
 }
@@ -270,7 +306,7 @@ export function AddNodeView({ data }: NodeProps<Node<AddNodeData>>) {
 
   return (
     <div className="flex w-80 justify-center">
-      <Handle type="target" position={Position.Top} className="!opacity-0" />
+      <Handle type="target" position={Position.Top} className={targetHandleClass} />
       <NodePicker
         onPickCondition={(parameter) =>
           addNode(workflowId, { kind: "condition", condition: defaultConditionFor() && { ...defaultConditionFor(), parameter } })

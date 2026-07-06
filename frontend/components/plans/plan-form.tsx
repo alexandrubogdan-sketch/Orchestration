@@ -1,10 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Trash2, X } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { randomRowId } from "@/lib/plan-store";
+import { COUNTRIES } from "@/lib/countries";
 import {
   BILLING_INTERVAL_UNITS,
   COMMON_CURRENCIES,
@@ -82,149 +93,156 @@ export function PlanForm({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 sm:p-8">
-      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-surface shadow-xl">
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
-          <h2 className="text-sm font-semibold">{initial ? "Edit plan" : "Create plan"}</h2>
-          <button onClick={onClose} className="text-muted hover:text-foreground">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{initial ? "Edit plan" : "Create plan"}</DialogTitle>
+          <DialogDescription>
+            Billing plans — pricing, localized currencies, and trials.
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto p-5">
-          <div className="flex flex-col gap-6">
-            <label className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium">Plan name</span>
+        <div className="flex max-h-[60vh] flex-col gap-6 overflow-y-auto pr-1">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="plan-name">Plan name</Label>
+            <Input
+              id="plan-name"
+              value={draft.name}
+              onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+              placeholder="e.g. Pro Monthly"
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="plan-duration-count">Duration</Label>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Every</span>
               <Input
-                value={draft.name}
-                onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-                placeholder="e.g. Pro Monthly"
+                id="plan-duration-count"
+                type="number"
+                min={1}
+                className="w-20"
+                value={draft.billingIntervalCount}
+                onChange={(e) =>
+                  setDraft((d) => ({ ...d, billingIntervalCount: Number(e.target.value) }))
+                }
               />
-            </label>
+              <Select
+                aria-label="Duration unit"
+                value={draft.billingIntervalUnit}
+                onChange={(e) =>
+                  setDraft((d) => ({ ...d, billingIntervalUnit: e.target.value as BillingIntervalUnit }))
+                }
+              >
+                {BILLING_INTERVAL_UNITS.map((unit) => (
+                  <option key={unit} value={unit}>
+                    {unit}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
 
-            <div className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium">Duration</span>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted">Every</span>
-                <Input
-                  type="number"
-                  min={1}
-                  className="w-20"
-                  value={draft.billingIntervalCount}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, billingIntervalCount: Number(e.target.value) }))
-                  }
-                />
-                <Select
-                  value={draft.billingIntervalUnit}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, billingIntervalUnit: e.target.value as BillingIntervalUnit }))
-                  }
-                >
-                  {BILLING_INTERVAL_UNITS.map((unit) => (
-                    <option key={unit} value={unit}>
-                      {unit}
-                    </option>
-                  ))}
-                </Select>
-              </div>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <Label>Pricing</Label>
+              <Button type="button" size="sm" variant="outline" onClick={addPriceRow}>
+                <Plus className="h-3.5 w-3.5" /> Add currency / country
+              </Button>
+            </div>
+            <span className="text-xs text-muted-foreground">
+              The first row is the default price for all countries. Add a row per country to
+              override it — e.g. USD 29.99 for all countries, then CAD 33.99 for CA.
+            </span>
+            <PriceRowsEditor
+              rows={draft.prices}
+              onUpdate={updatePriceRow}
+              onRemove={removePriceRow}
+              allowEmptyRemove={draft.prices.length > 1}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <Switch
+                id="trial-enabled"
+                checked={draft.trial.enabled}
+                onCheckedChange={(checked) =>
+                  setDraft((d) => ({ ...d, trial: { ...d.trial, enabled: checked } }))
+                }
+              />
+              <Label htmlFor="trial-enabled">Trial</Label>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Pricing</span>
-                <Button size="sm" variant="outline" onClick={addPriceRow}>
-                  <Plus className="h-3.5 w-3.5" /> Add currency / country
-                </Button>
-              </div>
-              <span className="text-xs text-muted">
-                The first row is the default price for all countries. Add a row per country to
-                override it — e.g. USD 29.99 for all countries, then CAD 33.99 for CA.
-              </span>
-              <PriceRowsEditor
-                rows={draft.prices}
-                onUpdate={updatePriceRow}
-                onRemove={removePriceRow}
-                allowEmptyRemove={draft.prices.length > 1}
-              />
-            </div>
-
-            <div className="flex flex-col gap-2">
-              <label className="flex items-center gap-2 text-sm font-medium">
-                <input
-                  type="checkbox"
-                  checked={draft.trial.enabled}
-                  onChange={(e) =>
-                    setDraft((d) => ({ ...d, trial: { ...d.trial, enabled: e.target.checked } }))
-                  }
-                />
-                Trial
-              </label>
-
-              {draft.trial.enabled ? (
-                <div className="flex flex-col gap-3 rounded-lg bg-neutral-bg p-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted">Trial length</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      className="w-20"
-                      value={draft.trial.intervalCount}
-                      onChange={(e) =>
-                        setDraft((d) => ({
-                          ...d,
-                          trial: { ...d.trial, intervalCount: Number(e.target.value) },
-                        }))
-                      }
-                    />
-                    <Select
-                      value={draft.trial.intervalUnit}
-                      onChange={(e) =>
-                        setDraft((d) => ({
-                          ...d,
-                          trial: { ...d.trial, intervalUnit: e.target.value as BillingIntervalUnit },
-                        }))
-                      }
-                    >
-                      {BILLING_INTERVAL_UNITS.map((unit) => (
-                        <option key={unit} value={unit}>
-                          {unit}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Trial amount</span>
-                    <Button size="sm" variant="outline" onClick={addTrialPriceRow}>
-                      <Plus className="h-3.5 w-3.5" /> Add currency / country
-                    </Button>
-                  </div>
-                  <span className="text-xs text-muted">
-                    Set to 0 for a free trial. Add a row per country the same way as pricing above.
-                  </span>
-                  <PriceRowsEditor
-                    rows={draft.trial.prices}
-                    onUpdate={updateTrialPriceRow}
-                    onRemove={removeTrialPriceRow}
-                    allowEmptyRemove
+            {draft.trial.enabled ? (
+              <div className="flex flex-col gap-3 rounded-lg bg-muted p-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Trial length</span>
+                  <Input
+                    type="number"
+                    min={1}
+                    className="w-20"
+                    value={draft.trial.intervalCount}
+                    onChange={(e) =>
+                      setDraft((d) => ({
+                        ...d,
+                        trial: { ...d.trial, intervalCount: Number(e.target.value) },
+                      }))
+                    }
                   />
+                  <Select
+                    aria-label="Trial length unit"
+                    value={draft.trial.intervalUnit}
+                    onChange={(e) =>
+                      setDraft((d) => ({
+                        ...d,
+                        trial: { ...d.trial, intervalUnit: e.target.value as BillingIntervalUnit },
+                      }))
+                    }
+                  >
+                    {BILLING_INTERVAL_UNITS.map((unit) => (
+                      <option key={unit} value={unit}>
+                        {unit}
+                      </option>
+                    ))}
+                  </Select>
                 </div>
-              ) : null}
-            </div>
+
+                <div className="flex items-center justify-between">
+                  <Label>Trial amount</Label>
+                  <Button type="button" size="sm" variant="outline" onClick={addTrialPriceRow}>
+                    <Plus className="h-3.5 w-3.5" /> Add currency / country
+                  </Button>
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  Set to 0 for a free trial. Add a row per country the same way as pricing above.
+                </span>
+                <PriceRowsEditor
+                  rows={draft.trial.prices}
+                  onUpdate={updateTrialPriceRow}
+                  onRemove={removeTrialPriceRow}
+                  allowEmptyRemove
+                />
+              </div>
+            ) : null}
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
-          <Button size="sm" variant="outline" onClick={onClose}>
+        <DialogFooter>
+          <Button type="button" size="sm" variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button size="sm" disabled={!canSave} onClick={() => onSave(draft)}>
+          <Button type="button" size="sm" disabled={!canSave} onClick={() => onSave(draft)}>
             {initial ? "Save changes" : "Create plan"}
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -244,6 +262,7 @@ function PriceRowsEditor({
       {rows.map((row, index) => (
         <div key={row.id} className="flex items-center gap-2">
           <Select
+            aria-label="Currency"
             className="w-24"
             value={row.currency}
             onChange={(e) => onUpdate(row.id, { currency: e.target.value })}
@@ -263,17 +282,30 @@ function PriceRowsEditor({
             onChange={(e) => onUpdate(row.id, { amountMinorUnits: toMinor(e.target.value) })}
           />
           {index === 0 ? (
-            <span className="w-32 text-sm text-muted">All countries (default)</span>
+            <span className="w-40 text-sm text-muted-foreground">All countries (default)</span>
           ) : (
-            <Input
-              className="w-32"
-              placeholder="Country, e.g. CA"
+            <Select
+              aria-label="Country"
+              className="w-40"
               value={row.country}
-              onChange={(e) => onUpdate(row.id, { country: e.target.value.toUpperCase() })}
-            />
+              onChange={(e) => onUpdate(row.id, { country: e.target.value })}
+            >
+              <option value="" disabled>
+                Select country&hellip;
+              </option>
+              {COUNTRIES.map((country) => (
+                <option key={country.code} value={country.code}>
+                  {country.name}
+                </option>
+              ))}
+            </Select>
           )}
           {index > 0 || allowEmptyRemove ? (
-            <button onClick={() => onRemove(row.id)} className="text-muted hover:text-danger">
+            <button
+              type="button"
+              onClick={() => onRemove(row.id)}
+              className="text-muted-foreground hover:text-destructive"
+            >
               <Trash2 className="h-4 w-4" />
             </button>
           ) : null}

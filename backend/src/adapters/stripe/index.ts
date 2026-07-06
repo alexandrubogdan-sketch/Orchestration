@@ -28,6 +28,7 @@ import type { StripeCredentials } from './credentials.js';
 import {
   extractRawDeclineCode,
   mapPaymentIntentStatus,
+  mapThreeDsModeToStripe,
   normalizeStripeDecline,
   normalizeStripeEvent,
 } from './statusMapping.js';
@@ -107,6 +108,7 @@ export class StripeAdapter implements PspAdapter {
   }
 
   async createPayment(input: CreatePaymentInput): Promise<AttemptResult> {
+    const requestThreeDSecure = mapThreeDsModeToStripe(input.threeDsMode);
     const params: Stripe.PaymentIntentCreateParams = {
       amount: input.amount.minorUnits,
       currency: input.amount.currency.toLowerCase(),
@@ -116,6 +118,9 @@ export class StripeAdapter implements PspAdapter {
       off_session: input.context.citMit === 'mit',
       metadata: { payment_id: input.paymentId },
       ...(input.statementDescriptor ? { statement_descriptor: input.statementDescriptor } : {}),
+      ...(requestThreeDSecure
+        ? { payment_method_options: { card: { request_three_d_secure: requestThreeDSecure } } }
+        : {}),
       expand: ['latest_charge'],
     };
 

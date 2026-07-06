@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Sidebar } from "@/components/layout/sidebar";
+import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
 // Note: intentionally NOT using next/font/google (Geist) — it fetches
@@ -20,10 +21,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased">
+    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
       <body className="flex h-full min-h-screen">
-        <Sidebar />
-        <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+        <ThemeProvider>
+          <Sidebar />
+          <div className="flex min-w-0 flex-1 flex-col">{children}</div>
+        </ThemeProvider>
       </body>
     </html>
   );

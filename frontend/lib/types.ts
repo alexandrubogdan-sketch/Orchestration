@@ -285,12 +285,52 @@ export interface Plan {
 
 export type IntegrationStatus = "connected" | "not_connected";
 
+export type IntegrationMode = "sandbox" | "production";
+
+/** One processor needs more than one credential — confirmed against the
+ *  backend's actual env schema (payment-orchestrator/src/config/schema.ts)
+ *  and docs/adr/0011-solidgate-second-psp.md rather than guessed:
+ *  Stripe = publishable key + secret key + webhook signing secret;
+ *  Solidgate = public key + secret key + a *separate* webhook public/secret
+ *  key pair (Solidgate signs webhooks with distinct wh_pk_/wh_sk_
+ *  credentials from its api_pk_/api_sk_ API-call pair). `key` matches this
+ *  frontend's camelCase convention, not the backend's SCREAMING_SNAKE env
+ *  var name — see the trailing comment on each for the backend equivalent. */
+export interface CredentialFieldSpec {
+  key: string;
+  label: string;
+  placeholder: string;
+  /** Password-masked in the connect form and redacted everywhere else. */
+  secret: boolean;
+}
+
+export const PROCESSOR_CREDENTIAL_FIELDS: Record<ProcessorId, CredentialFieldSpec[]> = {
+  stripe: [
+    { key: "publishableKey", label: "Publishable key", placeholder: "pk_test_...", secret: false }, // STRIPE_PUBLISHABLE_KEY
+    { key: "secretKey", label: "Secret key", placeholder: "sk_test_...", secret: true }, // STRIPE_SECRET_KEY
+    { key: "webhookSecret", label: "Webhook signing secret", placeholder: "whsec_...", secret: true }, // STRIPE_WEBHOOK_SECRET
+  ],
+  solidgate: [
+    { key: "publicKey", label: "Public key", placeholder: "api_pk_...", secret: false }, // SOLIDGATE_PUBLIC_KEY
+    { key: "secretKey", label: "Secret key", placeholder: "api_sk_...", secret: true }, // SOLIDGATE_SECRET_KEY
+    { key: "webhookPublicKey", label: "Webhook public key", placeholder: "wh_pk_...", secret: false }, // SOLIDGATE_WEBHOOK_PUBLIC_KEY
+    { key: "webhookSecretKey", label: "Webhook secret key", placeholder: "wh_sk_...", secret: true }, // SOLIDGATE_WEBHOOK_SECRET_KEY
+  ],
+};
+
 export interface Integration {
   id: string;
   processor: ProcessorId;
   displayName: string;
   status: IntegrationStatus;
   connectedAt?: string;
-  /** Last 4 of the connected API key, for display only — never a real secret. */
-  keyPreview?: string;
+  mode?: IntegrationMode;
+  /** Masked previews only, keyed by CredentialFieldSpec.key — never a real
+   *  secret. Non-secret fields (publishable/public keys) are shown in full
+   *  since they're not sensitive by design. */
+  credentialPreviews?: Record<string, string>;
+  /** Statement/billing descriptors configured for this processor account —
+   *  surfaced so the VAMP/Mastercard risk-monitoring dashboard can offer a
+   *  per-descriptor filter. */
+  descriptors?: string[];
 }
