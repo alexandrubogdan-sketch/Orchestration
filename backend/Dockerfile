@@ -52,5 +52,14 @@ USER node
 # dist/api/server.js. This only ever surfaced once this image was actually
 # run (Railway), since local dev/tests run via tsx against the .ts sources
 # directly and never exercised this exact compiled path.
-CMD ["node", "dist/src/api/server.js"]
-
+#
+# Run migrations before starting the server: on a fresh deploy the api
+# process's own boot sequence (loadDeclineMaps) queries tables that don't
+# exist yet on an unmigrated database, crash-looping the container before
+# there's ever a stable window to exec `npm run migrate:up` by hand via
+# Railway's Console tab. Running it as part of CMD makes every boot
+# self-healing instead of relying on a manual one-off step. --envPath .env
+# points at a file that doesn't exist in this image; node-pg-migrate/dotenv
+# just skip it and fall back to real process.env (DATABASE_URL etc., set
+# via Railway variables), so this is safe with no .env file present.
+CMD ["sh", "-c", "npm run migrate:up && node dist/src/api/server.js"]
