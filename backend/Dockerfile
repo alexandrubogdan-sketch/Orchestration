@@ -25,7 +25,12 @@ FROM node:22-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev
+# Deliberately NOT --omit=dev: keeps node-pg-migrate (and tsx) in the image
+# so `npm run migrate:up` can be run as a one-off exec against the deployed
+# container's private-network DATABASE_URL (e.g. via Railway's Console tab)
+# without needing a separate migration image. Small size tradeoff, worth it
+# for an ops task that only needs to exist at all, not be fast.
+RUN npm ci
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/db ./db
 USER node
