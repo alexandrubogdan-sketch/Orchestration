@@ -12,7 +12,7 @@ export default function PlansDocsPage() {
       />
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Shape</h2>
+        <h2 id="shape" className="mb-3 text-lg font-semibold text-foreground">Shape</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
           A <code className="font-mono">Plan</code> (<code className="font-mono">lib/types.ts</code>) is a
           billing interval plus a flat list of price rows, plus an optional trial:
@@ -43,7 +43,7 @@ interface TrialConfig {
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Localized pricing rows</h2>
+        <h2 id="localized-pricing-rows" className="mb-3 text-lg font-semibold text-foreground">Localized pricing rows</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           There is no separate localization table — a plan&apos;s <code className="font-mono">prices</code> array
           is just filtered by <code className="font-mono">country</code> at read time. Exactly one row uses
@@ -62,7 +62,7 @@ interface TrialConfig {
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Trial configuration</h2>
+        <h2 id="trial-configuration" className="mb-3 text-lg font-semibold text-foreground">Trial configuration</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           <code className="font-mono">trial</code> is a fully independent structure — its own{" "}
           <code className="font-mono">intervalUnit</code>/<code className="font-mono">intervalCount</code>{" "}
@@ -89,33 +89,48 @@ interface TrialConfig {
       </Callout>
 
       <section>
-        <h2 className="mb-3 text-lg font-semibold text-foreground">How this differs from the backend&apos;s subscriptions</h2>
+        <h2 id="how-this-differs" className="mb-3 text-lg font-semibold text-foreground">How this differs from the backend&apos;s subscriptions</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           The backend&apos;s <code className="font-mono">subscriptions</code> table (
           <code className="font-mono">src/subscriptions/subscriptions.ts</code>) represents a live,
-          per-customer subscription instance — <code className="font-mono">merchant_entity_id</code>,{" "}
-          <code className="font-mono">customer_id</code>, <code className="font-mono">payment_method_id</code>,{" "}
-          <code className="font-mono">psp_account_id</code>, <code className="font-mono">amount_minor_units</code>,{" "}
-          <code className="font-mono">interval_unit</code>/<code className="font-mono">interval_count</code>,{" "}
-          <code className="font-mono">status</code> (<code className="font-mono">active</code> /{" "}
-          <code className="font-mono">paused</code> / <code className="font-mono">past_due</code> /{" "}
-          <code className="font-mono">canceled</code>), <code className="font-mono">current_period_start/end</code>,{" "}
-          <code className="font-mono">next_billing_at</code>, and dunning state (
-          <code className="font-mono">dunning_stage</code>, <code className="font-mono">dunning_next_retry_at</code>
-          ). There is no plan-catalog concept there at all — each subscription stores its own amount and
+          per-customer subscription instance, not a plan-catalog entry:
+        </p>
+        <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
+          <li>
+            Its own <code className="font-mono">merchant_entity_id</code>, <code className="font-mono">customer_id</code>,{" "}
+            <code className="font-mono">payment_method_id</code>, <code className="font-mono">psp_account_id</code>, and{" "}
+            <code className="font-mono">amount_minor_units</code>.
+          </li>
+          <li>
+            <code className="font-mono">status</code> of <code className="font-mono">active</code> /{" "}
+            <code className="font-mono">paused</code> / <code className="font-mono">past_due</code> /{" "}
+            <code className="font-mono">canceled</code>, plus{" "}
+            <code className="font-mono">current_period_start/end</code> and{" "}
+            <code className="font-mono">next_billing_at</code>.
+          </li>
+          <li>
+            Dunning state: <code className="font-mono">dunning_stage</code>,{" "}
+            <code className="font-mono">dunning_next_retry_at</code>.
+          </li>
+        </ul>
+        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+          There is no plan-catalog concept there at all — each subscription stores its own amount and
           interval directly. This dashboard&apos;s <code className="font-mono">Plan</code> model is a
-          product-catalog abstraction that the backend does not have; wiring the two together would mean
-          either adding a plans table upstream of <code className="font-mono">subscriptions</code>, or
-          treating this page purely as pricing documentation that a human keys into{" "}
+          product-catalog abstraction the backend does not have; wiring the two together would mean either
+          adding a plans table upstream of <code className="font-mono">subscriptions</code>, or treating
+          this page purely as pricing documentation that a human keys into{" "}
           <code className="font-mono">subscriptions.amount_minor_units</code> by hand.
         </p>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
           Renewals always bill the same <code className="font-mono">payment_method</code> and{" "}
           <code className="font-mono">psp_account</code> as the original subscription — there is no
-          re-routing through the evaluator on renewal. Failed renewals that aren&apos;t hard/fraud declines
-          enter the dunning ladder at <code className="font-mono">DUNNING_LADDER_HOURS = [24, 72, 168]</code>{" "}
-          (1, 3, and 7 days) before the subscription is canceled; hard or fraud declines cancel
-          immediately instead of entering dunning.
+          re-routing through the evaluator on renewal.
+        </p>
+        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+          Failed renewals that aren&apos;t hard/fraud declines enter the dunning ladder at{" "}
+          <code className="font-mono">DUNNING_LADDER_HOURS = [24, 72, 168]</code> (1, 3, and 7 days) before
+          the subscription is canceled. Hard or fraud declines cancel immediately instead of entering
+          dunning.
         </p>
       </section>
     </div>

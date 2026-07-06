@@ -14,7 +14,7 @@ export default function PaymentsDocsPage() {
       />
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Canonical states</h2>
+        <h2 id="canonical-states" className="mb-3 text-lg font-semibold text-foreground">Canonical states</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
           A payment moves through exactly one of 15 states, defined in{" "}
           <code className="font-mono">src/domain/stateMachine.ts</code>:
@@ -55,7 +55,7 @@ export default function PaymentsDocsPage() {
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">The transition table is law</h2>
+        <h2 id="transition-table" className="mb-3 text-lg font-semibold text-foreground">The transition table is law</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
           <code className="font-mono">ALLOWED_TRANSITIONS</code> maps each state to the canonical event types
           it accepts and where they lead:
@@ -109,7 +109,7 @@ dispute_opened  + dispute_lost                -> dispute_lost`}</CodeBlock>
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">
+        <h2 id="effectful-transitions" className="mb-3 text-lg font-semibold text-foreground">
           Effectful transitions: <code className="font-mono">stateMachineDb.ts</code>
         </h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
@@ -125,7 +125,7 @@ dispute_opened  + dispute_lost                -> dispute_lost`}</CodeBlock>
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Timeline events (the public contract)</h2>
+        <h2 id="timeline-events" className="mb-3 text-lg font-semibold text-foreground">Timeline events (the public contract)</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
           Internal canonical event types are richer than what&apos;s exposed. <code className="font-mono">
             src/domain/timelineEvents.ts
@@ -168,7 +168,7 @@ dispute_opened  + dispute_lost                -> dispute_lost`}</CodeBlock>
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Idempotency, at every layer</h2>
+        <h2 id="idempotency" className="mb-3 text-lg font-semibold text-foreground">Idempotency, at every layer</h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Card>
             <CardHeader>
@@ -212,7 +212,7 @@ dispute_opened  + dispute_lost                -> dispute_lost`}</CodeBlock>
       </section>
 
       <section>
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Money</h2>
+        <h2 id="money" className="mb-3 text-lg font-semibold text-foreground">Money</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           All amounts are a branded <code className="font-mono">Money</code> type (
           <code className="font-mono">{"{ minorUnits: number; currency: string }"}</code>), constructed only

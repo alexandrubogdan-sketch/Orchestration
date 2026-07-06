@@ -1,4 +1,14 @@
 import Link from "next/link";
+import {
+  CreditCard,
+  Plug,
+  Workflow,
+  Wallet,
+  Boxes,
+  ShieldAlert,
+  Scale,
+  Rocket,
+} from "lucide-react";
 import { DocsHeader } from "@/components/docs/docs-header";
 import { Callout } from "@/components/docs/callout";
 import { CodeBlock } from "@/components/docs/code-block";
@@ -14,17 +24,23 @@ export default function DocsOverviewPage() {
         description="What Alpha Payments is, how the pieces fit together, and — since this is an internal build, not a vendor's marketing site — exactly how much of it is wired up today."
       />
 
-      <section className="mb-10 space-y-4">
+      <section className="mb-10 space-y-3">
         <p className="text-sm leading-relaxed text-muted-foreground">
-          Alpha Payments is an in-house payment orchestration layer for a digital-goods
-          company operating multiple products across two legal entities (<code className="rounded bg-neutral-bg px-1 py-0.5 text-xs font-mono">US-LLC</code> and{" "}
-          <code className="rounded bg-neutral-bg px-1 py-0.5 text-xs font-mono">EU-BV</code>), processing through
-          multiple PSPs — Stripe first, Solidgate second, with Adyen and Netevia intended later behind the
-          same adapter interface. It provides one internal payments API, one canonical payment state
-          machine, one normalized decline-code taxonomy, reliable webhook ingestion, config-driven PSP
-          routing, an append-only per-payment event timeline, an immutable transaction ledger, and
-          settlement reconciliation.
+          Alpha Payments is an in-house payment orchestration layer for a digital-goods company operating
+          multiple products across two legal entities (
+          <code className="rounded bg-neutral-bg px-1 py-0.5 text-xs font-mono">US-LLC</code> and{" "}
+          <code className="rounded bg-neutral-bg px-1 py-0.5 text-xs font-mono">EU-BV</code>), processing
+          through multiple PSPs — Stripe first, Solidgate second, with Adyen and Netevia intended later
+          behind the same adapter interface.
         </p>
+        <p className="text-sm leading-relaxed text-muted-foreground">It provides:</p>
+        <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+          <li><strong className="text-foreground">One internal payments API</strong> and one canonical payment state machine</li>
+          <li><strong className="text-foreground">One normalized decline-code taxonomy</strong> across PSPs</li>
+          <li><strong className="text-foreground">Reliable webhook ingestion</strong> and config-driven PSP routing</li>
+          <li><strong className="text-foreground">An append-only event timeline</strong> per payment, plus an immutable transaction ledger</li>
+          <li><strong className="text-foreground">Settlement reconciliation</strong> against the ledger</li>
+        </ul>
         <p className="text-sm leading-relaxed text-muted-foreground">
           It deliberately does <strong className="text-foreground">not</strong> build a checkout UI, a card
           vault (no PAN or CVV is ever stored or logged), fraud scoring, or chargeback representment.
@@ -32,7 +48,7 @@ export default function DocsOverviewPage() {
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Two codebases, one product</h2>
+        <h2 id="two-codebases-one-product" className="mb-3 text-lg font-semibold text-foreground">Two codebases, one product</h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Card>
             <CardHeader>
@@ -64,10 +80,14 @@ export default function DocsOverviewPage() {
             </CardHeader>
             <CardContent className="space-y-2 text-sm text-muted-foreground">
               <p>
-                Next.js 16 (App Router) + TypeScript + Tailwind CSS v4, with shadcn/ui-style primitives
-                under <code className="rounded bg-neutral-bg px-1 py-0.5 text-xs font-mono">components/ui/</code>,
-                Recharts for charts, React Flow + elkjs for the workflow canvas, and Zustand for
-                client-side editable state.
+                <strong className="text-foreground">Next.js 16</strong> (App Router) + TypeScript +
+                Tailwind CSS v4, with shadcn/ui-style primitives under{" "}
+                <code className="rounded bg-neutral-bg px-1 py-0.5 text-xs font-mono">components/ui/</code>.
+              </p>
+              <p>
+                <strong className="text-foreground">Recharts</strong> for charts,{" "}
+                <strong className="text-foreground">React Flow + elkjs</strong> for the workflow canvas, and{" "}
+                <strong className="text-foreground">Zustand</strong> for client-side editable state.
               </p>
               <p>
                 Pages: Dashboard, Payments, Plans, Integrations, Workflows, Risk Monitoring — and now
@@ -92,7 +112,7 @@ export default function DocsOverviewPage() {
       </Callout>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Request flow, end to end</h2>
+        <h2 id="request-flow" className="mb-3 text-lg font-semibold text-foreground">Request flow, end to end</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
           A payment moving through the (backend&apos;s) real pipeline looks like this:
         </p>
@@ -112,7 +132,7 @@ export default function DocsOverviewPage() {
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Non-negotiable principles</h2>
+        <h2 id="non-negotiable-principles" className="mb-3 text-lg font-semibold text-foreground">Non-negotiable principles</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
           These are enforced in the backend&apos;s design, not just conventions — quoting{" "}
           <code className="font-mono">SPEC.md</code> directly since they explain a lot of the API and schema
@@ -180,23 +200,28 @@ export default function DocsOverviewPage() {
       </section>
 
       <section>
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Where to go next</h2>
+        <h2 id="where-to-go-next" className="mb-3 text-lg font-semibold text-foreground">Where to go next</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {[
-            { href: "/docs/payments", title: "Payments", desc: "States, timeline events, idempotency" },
-            { href: "/docs/adapters", title: "PSP adapters & declines", desc: "Adapter isolation, decline taxonomy" },
-            { href: "/docs/workflows", title: "Workflows", desc: "Trigger/condition/action model, 3DS, routing" },
-            { href: "/docs/plans", title: "Plans & billing", desc: "Localized pricing, trial config" },
-            { href: "/docs/integrations", title: "Integrations", desc: "Per-processor credentials" },
-            { href: "/docs/risk-monitoring", title: "Risk monitoring", desc: "VAMP / Mastercard thresholds" },
-            { href: "/docs/reconciliation", title: "Reconciliation & ledger", desc: "Settlement matching, exceptions" },
-            { href: "/docs/deployment", title: "Deployment", desc: "Vercel, Railway, and what isn't wired up" },
+            { href: "/docs/payments", title: "Payments", desc: "States, timeline events, idempotency", icon: CreditCard },
+            { href: "/docs/adapters", title: "PSP adapters & declines", desc: "Adapter isolation, decline taxonomy", icon: Plug },
+            { href: "/docs/workflows", title: "Workflows", desc: "Trigger/condition/action model, 3DS, routing", icon: Workflow },
+            { href: "/docs/plans", title: "Plans & billing", desc: "Localized pricing, trial config", icon: Wallet },
+            { href: "/docs/integrations", title: "Integrations", desc: "Per-processor credentials", icon: Boxes },
+            { href: "/docs/risk-monitoring", title: "Risk monitoring", desc: "VAMP / Mastercard thresholds", icon: ShieldAlert },
+            { href: "/docs/reconciliation", title: "Reconciliation & ledger", desc: "Settlement matching, exceptions", icon: Scale },
+            { href: "/docs/deployment", title: "Deployment", desc: "Vercel, Railway, and what isn't wired up", icon: Rocket },
           ].map((item) => (
             <Link key={item.href} href={item.href}>
               <Card className="h-full transition-colors hover:border-accent/50">
-                <CardContent className="p-4">
-                  <div className="text-sm font-semibold text-foreground">{item.title}</div>
-                  <div className="mt-0.5 text-xs text-muted-foreground">{item.desc}</div>
+                <CardContent className="flex items-start gap-3 p-4">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent-foreground">
+                    <item.icon className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">{item.title}</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">{item.desc}</div>
+                  </div>
                 </CardContent>
               </Card>
             </Link>

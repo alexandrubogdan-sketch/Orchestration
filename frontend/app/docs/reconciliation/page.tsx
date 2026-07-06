@@ -24,7 +24,7 @@ export default function ReconciliationDocsPage() {
       </Callout>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">The ledger is append-only</h2>
+        <h2 id="ledger-append-only" className="mb-3 text-lg font-semibold text-foreground">The ledger is append-only</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           <code className="font-mono">transactions</code> rows are never updated, only inserted — a
           correction is always a new row. Each row has a <code className="font-mono">type</code> of{" "}
@@ -50,7 +50,7 @@ export default function ReconciliationDocsPage() {
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Settlement ingestion</h2>
+        <h2 id="settlement-ingestion" className="mb-3 text-lg font-semibold text-foreground">Settlement ingestion</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           A scheduled task (<code className="font-mono">ledger.settlement-ingestion</code>, 2 retries) walks
           every enabled <code className="font-mono">psp_account</code>, calls the adapter&apos;s{" "}
@@ -66,7 +66,7 @@ export default function ReconciliationDocsPage() {
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Matching and exceptions</h2>
+        <h2 id="matching-and-exceptions" className="mb-3 text-lg font-semibold text-foreground">Matching and exceptions</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
           Only <code className="font-mono">capture</code> and <code className="font-mono">refund</code>{" "}
           settlement types are matched 1:1 against ledger transactions, deduplicated by{" "}
@@ -114,7 +114,7 @@ export default function ReconciliationDocsPage() {
       </section>
 
       <section>
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Nightly invariants</h2>
+        <h2 id="nightly-invariants" className="mb-3 text-lg font-semibold text-foreground">Nightly invariants</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           <code className="font-mono">ledger.nightly-invariants</code> (1 retry) runs two checks and exposes
           them as Prometheus gauges only — there is no automated remediation:

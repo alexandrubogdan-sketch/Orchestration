@@ -26,7 +26,7 @@ export default function IntegrationsDocsPage() {
       </Callout>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Credential fields per processor</h2>
+        <h2 id="credential-fields" className="mb-3 text-lg font-semibold text-foreground">Credential fields per processor</h2>
         <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
           <code className="font-mono">PROCESSOR_CREDENTIAL_FIELDS</code> in <code className="font-mono">
             lib/types.ts
@@ -66,7 +66,7 @@ export default function IntegrationsDocsPage() {
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Sandbox vs. production mode</h2>
+        <h2 id="sandbox-vs-production" className="mb-3 text-lg font-semibold text-foreground">Sandbox vs. production mode</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           Both the frontend&apos;s <code className="font-mono">IntegrationMode</code> and the backend&apos;s real{" "}
           <code className="font-mono">psp_accounts.mode</code> column use the same{" "}
@@ -85,7 +85,7 @@ export default function IntegrationsDocsPage() {
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Statement descriptors</h2>
+        <h2 id="statement-descriptors" className="mb-3 text-lg font-semibold text-foreground">Statement descriptors</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           An <code className="font-mono">Integration</code> can carry a list of{" "}
           <code className="font-mono">descriptors</code> — the billing-statement text customers see on their
@@ -108,7 +108,7 @@ export default function IntegrationsDocsPage() {
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Why Stripe and Solidgate specifically</h2>
+        <h2 id="why-stripe-and-solidgate" className="mb-3 text-lg font-semibold text-foreground">Why Stripe and Solidgate specifically</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           These are the only two PSPs the backend has actually implemented adapters for (see{" "}
           <a href="/docs/adapters" className="font-medium text-accent-foreground underline underline-offset-2">
@@ -122,7 +122,7 @@ export default function IntegrationsDocsPage() {
       </section>
 
       <section>
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Request signing differs by processor</h2>
+        <h2 id="request-signing" className="mb-3 text-lg font-semibold text-foreground">Request signing differs by processor</h2>
         <CodeBlock label="Stripe vs. Solidgate webhook verification">{`Stripe:
   header: stripe-signature
   scheme: HMAC-SHA256, Stripe SDK's webhooks.constructEvent()

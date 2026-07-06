@@ -72,7 +72,7 @@ export default function AdaptersDocsPage() {
       />
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Adapter isolation</h2>
+        <h2 id="adapter-isolation" className="mb-3 text-lg font-semibold text-foreground">Adapter isolation</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           Non-negotiable #7 in the backend&apos;s spec: nothing outside <code className="font-mono">
             src/adapters/
@@ -103,19 +103,26 @@ export default function AdaptersDocsPage() {
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
           <code className="font-mono">src/adapters/registry.ts</code> is the only place outside{" "}
           <code className="font-mono">adapters/mock</code>/<code className="font-mono">stripe</code>/<code className="font-mono">solidgate</code>{" "}
-          allowed to know concrete adapter classes exist. It resolves an adapter per{" "}
-          <code className="font-mono">psp_account</code> (caching Stripe/Solidgate clients per account id —
-          constructing a Stripe client is expensive — while the mock adapter is always a single shared
-          instance), and optionally wraps the result in <code className="font-mono">RateLimitedPspAdapter</code>,
-          a decorator that gates every outbound-network method through a fixed 1-second-window limiter
-          (default 25 req/s per <code className="font-mono">psp_account</code>, Stripe&apos;s conservative
-          test-mode floor) without ever feeding failures into the circuit breaker — self-imposed limits
-          aren&apos;t a signal of PSP health.
+          allowed to know concrete adapter classes exist.
         </p>
+        <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
+          <li>
+            It resolves an adapter per <code className="font-mono">psp_account</code>, caching Stripe/Solidgate
+            clients per account id (constructing a Stripe client is expensive) — the mock adapter is always
+            a single shared instance.
+          </li>
+          <li>
+            It optionally wraps the result in <code className="font-mono">RateLimitedPspAdapter</code>, a
+            decorator that gates every outbound-network method through a fixed 1-second-window limiter
+            (default 25 req/s per <code className="font-mono">psp_account</code>, Stripe&apos;s conservative
+            test-mode floor).
+          </li>
+          <li>These self-imposed limits never feed the circuit breaker — they aren&apos;t a signal of PSP health.</li>
+        </ul>
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">The NormalizedDecline taxonomy</h2>
+        <h2 id="normalized-decline-taxonomy" className="mb-3 text-lg font-semibold text-foreground">The NormalizedDecline taxonomy</h2>
         <CodeBlock label="src/domain/declines.ts">{`type DeclineCategory = "hard" | "soft" | "fraud" | "authentication" | "technical" | "unmapped";
 type DeclineRetryClass = "never" | "same_instrument_later" | "retry_after_challenge"
                         | "retry_different_psp" | "review";
@@ -141,7 +148,7 @@ interface NormalizedDecline {
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Stripe decline map (45 codes)</h2>
+        <h2 id="stripe-decline-map" className="mb-3 text-lg font-semibold text-foreground">Stripe decline map (45 codes)</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
           <code className="font-mono">STRIPE_DECLINE_SEED</code> covers Stripe&apos;s documented decline codes —
           audited in <code className="font-mono">docs/adr/0012-stripe-decline-and-3ds-audit.md</code>, which
@@ -171,7 +178,7 @@ interface NormalizedDecline {
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Mock adapter — scriptable outcomes</h2>
+        <h2 id="mock-adapter" className="mb-3 text-lg font-semibold text-foreground">Mock adapter — scriptable outcomes</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
           <code className="font-mono">src/adapters/mock/</code> is a deterministic fake PSP used by every
           integration test, driven by magic amounts (minor units):
@@ -219,7 +226,7 @@ interface NormalizedDecline {
       </Callout>
 
       <section className="mt-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Stripe vs. Solidgate, side by side</h2>
+        <h2 id="stripe-vs-solidgate" className="mb-3 text-lg font-semibold text-foreground">Stripe vs. Solidgate, side by side</h2>
         <Table>
           <THead>
             <TR>

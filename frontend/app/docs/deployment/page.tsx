@@ -22,7 +22,7 @@ export default function DeploymentDocsPage() {
       </Callout>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Frontend — Vercel</h2>
+        <h2 id="frontend-vercel" className="mb-3 text-lg font-semibold text-foreground">Frontend — Vercel</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           The Next.js dashboard is deployed on Vercel via GitHub auto-deploy: pushes to the repo&apos;s default
           branch trigger a new build and deploy automatically. Since every page is statically rendered
@@ -33,12 +33,13 @@ export default function DeploymentDocsPage() {
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Backend — Railway</h2>
-        <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
+        <h2 id="backend-railway" className="mb-3 text-lg font-semibold text-foreground">Backend — Railway</h2>
+        <p className="mb-2 text-sm leading-relaxed text-muted-foreground">
           The backend is intended to run on Railway with managed Postgres and Redis, plus a self-hosted
-          Hatchet-lite task queue for durable background work (webhook normalization/apply, settlement
-          ingestion, dunning, nightly invariants, outbound webhook delivery). Provisioning status:
+          Hatchet-lite task queue for durable background work — webhook normalization/apply, settlement
+          ingestion, dunning, nightly invariants, and outbound webhook delivery.
         </p>
+        <p className="mb-4 text-sm leading-relaxed text-muted-foreground">Provisioning status:</p>
         <div className="space-y-2">
           <StatusRow label="Railway Postgres + Redis provisioned" status="done" />
           <StatusRow label="Hatchet-lite service deployed on Railway" status="done" />
@@ -71,7 +72,7 @@ worker    — npm run dev:worker, same deps, exposes :9464 (metrics only)`}</Cod
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Config &amp; secrets</h2>
+        <h2 id="config-and-secrets" className="mb-3 text-lg font-semibold text-foreground">Config &amp; secrets</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           The backend validates all configuration at boot via a Zod schema (
           <code className="font-mono">src/config/schema.ts</code>) and fails fast on anything missing or
@@ -89,7 +90,7 @@ worker    — npm run dev:worker, same deps, exposes :9464 (metrics only)`}</Cod
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">What &quot;wiring it up&quot; actually means</h2>
+        <h2 id="wiring-it-up" className="mb-3 text-lg font-semibold text-foreground">What &quot;wiring it up&quot; actually means</h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Card>
             <CardHeader>
@@ -123,7 +124,7 @@ worker    — npm run dev:worker, same deps, exposes :9464 (metrics only)`}</Cod
       </section>
 
       <section>
-        <h2 className="mb-3 text-lg font-semibold text-foreground">No authentication on this dashboard</h2>
+        <h2 id="no-authentication" className="mb-3 text-lg font-semibold text-foreground">No authentication on this dashboard</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           This frontend has no login screen. It&apos;s currently reachable as an internal tool without any
           gate in front of it. The backend&apos;s per-product API tokens (<code className="font-mono">

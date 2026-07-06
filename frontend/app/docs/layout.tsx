@@ -6,6 +6,7 @@ import { ArrowLeft, BookOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { DOCS_NAV } from "@/components/docs/docs-nav";
+import { Toc } from "@/components/docs/toc";
 
 /**
  * Docs get their own full-width reading layout instead of nesting inside
@@ -16,6 +17,12 @@ import { DOCS_NAV } from "@/components/docs/docs-nav";
  * same header treatment as Topbar, same Sidebar-style active-link
  * pattern, just swapped for a "back to app" link instead of the main
  * nav items.
+ *
+ * Content area is a 2-column CSS grid (content | toc) rather than a flex
+ * row with a fixed-width third column: the "on this page" nav's own
+ * internal "return null below threshold" logic means that grid column
+ * simply collapses to 0 width when there's nothing to show, instead of
+ * leaving a blank gap where an empty sidebar would have been.
  */
 export default function DocsLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -76,7 +83,12 @@ export default function DocsLayout({ children }: { children: React.ReactNode }) 
       </aside>
 
       <div className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl px-10 py-10">{children}</div>
+        <div className="mx-auto grid max-w-5xl grid-cols-1 gap-8 px-10 py-10 lg:grid-cols-[minmax(0,1fr)_auto]">
+          <main className="min-w-0 max-w-3xl">{children}</main>
+          <div className="hidden lg:block">
+            <Toc />
+          </div>
+        </div>
       </div>
     </div>
   );

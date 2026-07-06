@@ -32,7 +32,7 @@ export default function WorkflowsDocsPage() {
       </Callout>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">One workflow per payment method</h2>
+        <h2 id="one-workflow-per-payment-method" className="mb-3 text-lg font-semibold text-foreground">One workflow per payment method</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           Each <code className="font-mono">Workflow</code> is tied to exactly one payment method —{" "}
           <code className="font-mono">cards</code>, <code className="font-mono">apple_pay</code>, or{" "}
@@ -47,7 +47,7 @@ export default function WorkflowsDocsPage() {
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Conditions</h2>
+        <h2 id="conditions" className="mb-3 text-lg font-semibold text-foreground">Conditions</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
           A condition node matches on one <code className="font-mono">WorkflowConditionParameter</code> using
           one <code className="font-mono">WorkflowOperator</code>:
@@ -96,7 +96,7 @@ export default function WorkflowsDocsPage() {
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Actions</h2>
+        <h2 id="actions" className="mb-3 text-lg font-semibold text-foreground">Actions</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
           Five action types (<code className="font-mono">WORKFLOW_ACTION_TYPES</code>):{" "}
           <code className="font-mono">authorize_payment</code>, <code className="font-mono">settle_payment</code>,{" "}
@@ -121,7 +121,7 @@ export default function WorkflowsDocsPage() {
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">3DS modes</h2>
+        <h2 id="3ds-modes" className="mb-3 text-lg font-semibold text-foreground">3DS modes</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
           <code className="font-mono">THREE_DS_MODES</code>: <code className="font-mono">no_3ds</code>,{" "}
           <code className="font-mono">adaptive</code>, <code className="font-mono">frictionless</code>.
@@ -145,7 +145,7 @@ export default function WorkflowsDocsPage() {
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Draft vs. published</h2>
+        <h2 id="draft-vs-published" className="mb-3 text-lg font-semibold text-foreground">Draft vs. published</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           <code className="font-mono">togglePublish()</code> in <code className="font-mono">lib/workflow-store.ts</code>{" "}
           just flips a workflow&apos;s <code className="font-mono">state</code> between{" "}
@@ -158,26 +158,39 @@ export default function WorkflowsDocsPage() {
       </section>
 
       <section id="backend-routing">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Backend routing (the real thing)</h2>
+        <h2 id="backend-routing-heading" className="mb-3 text-lg font-semibold text-foreground">Backend routing (the real thing)</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
           The backend&apos;s actual Milestone 5 routing engine is much simpler and lives entirely in{" "}
-          <code className="font-mono">src/routing/</code>. A <code className="font-mono">routing_rules</code>{" "}
-          row is scoped by <code className="font-mono">merchant_entity_id</code> plus an optional{" "}
-          <code className="font-mono">product_id</code>, with a jsonb <code className="font-mono">match</code>{" "}
-          allow-list on currency / CIT-vs-MIT / payment-method-type (empty = matches anything), evaluated
-          in ascending <code className="font-mono">priority</code> order with product-specific rules
-          breaking ties over entity-wide ones. Rules are cached in Redis for 300 seconds with explicit
-          invalidation on writes, and every write lands an audit row in{" "}
-          <code className="font-mono">routing_rules_audit</code>. If nothing matches, it falls back to the
-          lowest-UUIDv7 enabled <code className="font-mono">psp_account</code>.
+          <code className="font-mono">src/routing/</code>.
         </p>
+        <ul className="mb-3 list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
+          <li>
+            A <code className="font-mono">routing_rules</code> row is scoped by{" "}
+            <code className="font-mono">merchant_entity_id</code> plus an optional{" "}
+            <code className="font-mono">product_id</code>, with a jsonb <code className="font-mono">match</code>{" "}
+            allow-list on currency / CIT-vs-MIT / payment-method-type (empty = matches anything).
+          </li>
+          <li>
+            Rules are evaluated in ascending <code className="font-mono">priority</code> order, with
+            product-specific rules breaking ties over entity-wide ones, and cached in Redis for 300 seconds
+            with explicit invalidation on writes.
+          </li>
+          <li>
+            Every write lands an audit row in <code className="font-mono">routing_rules_audit</code>. If
+            nothing matches, routing falls back to the lowest-UUIDv7 enabled{" "}
+            <code className="font-mono">psp_account</code>.
+          </li>
+        </ul>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
           A per-<code className="font-mono">psp_account</code> circuit breaker (Redis-backed, fixed 60s
           window, opens after 5 failures, 30s cooldown) only ever trips on{" "}
           <code className="font-mono">technical</code>-category decline failures — never on hard declines,
           fraud, or authentication requirements, since retrying those against a different PSP wouldn&apos;t
-          help. A central retry policy caps same-instrument retries at 3 attempts per payment with a
-          minimum 2-second spacing, and refuses outright to retry hard declines or{" "}
+          help.
+        </p>
+        <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
+          A central retry policy caps same-instrument retries at 3 attempts per payment with a minimum
+          2-second spacing, and refuses outright to retry hard declines or{" "}
           <code className="font-mono">review</code>-class declines.
         </p>
         <Callout tone="info" title="No admin API for routing rules yet">

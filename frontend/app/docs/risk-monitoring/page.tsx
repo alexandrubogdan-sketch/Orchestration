@@ -23,22 +23,28 @@ export default function RiskMonitoringDocsPage() {
       </Callout>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Visa VAMP (Acquirer Monitoring Program)</h2>
+        <h2 id="visa-vamp" className="mb-3 text-lg font-semibold text-foreground">Visa VAMP (Acquirer Monitoring Program)</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
           Ratio formula:
         </p>
         <CodeBlock label="VAMP ratio">{`VAMP Ratio = (TC40 fraud count + TC15 dispute count) / settled (TC05) transaction count`}</CodeBlock>
-        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          A merchant is only in scope once combined fraud + dispute transactions reach{" "}
-          <strong className="text-foreground">1,500 per month</strong> (<code className="font-mono">
-            VAMP_MIN_MONTHLY_COUNT
-          </code>
-          ). Merchants in the &quot;Excessive&quot; tier are charged <strong className="text-foreground">$8</strong>{" "}
-          per transaction (<code className="font-mono">VAMP_EXCESSIVE_FEE_USD</code>). The Excessive
-          threshold itself has moved: it was 2.2% at the program&apos;s June 2025 rollout / October 1, 2025 fee
-          start, and tightens to <strong className="text-foreground">1.5%</strong> globally (excluding MENA)
-          from <strong className="text-foreground">April 1, 2026</strong>.
-        </p>
+        <ul className="mt-3 list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
+          <li>
+            A merchant is only in scope once combined fraud + dispute transactions reach{" "}
+            <strong className="text-foreground">1,500 per month</strong> (
+            <code className="font-mono">VAMP_MIN_MONTHLY_COUNT</code>).
+          </li>
+          <li>
+            Merchants in the &quot;Excessive&quot; tier are charged{" "}
+            <strong className="text-foreground">$8</strong> per transaction (
+            <code className="font-mono">VAMP_EXCESSIVE_FEE_USD</code>).
+          </li>
+          <li>
+            The Excessive threshold itself has moved: 2.2% at the program&apos;s June 2025 rollout / October 1,
+            2025 fee start, tightening to <strong className="text-foreground">1.5%</strong> globally
+            (excluding MENA) from <strong className="text-foreground">April 1, 2026</strong>.
+          </li>
+        </ul>
         <Table className="mt-4">
           <THead>
             <TR>
@@ -72,7 +78,7 @@ export default function RiskMonitoringDocsPage() {
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Mastercard ECP (Excessive Chargeback Program)</h2>
+        <h2 id="mastercard-ecp" className="mb-3 text-lg font-semibold text-foreground">Mastercard ECP (Excessive Chargeback Program)</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">Ratio formula:</p>
         <CodeBlock label="Mastercard chargeback ratio">{`ratio = current-month chargebacks / prior-month sales transactions × 100`}</CodeBlock>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
@@ -120,7 +126,7 @@ export default function RiskMonitoringDocsPage() {
       </section>
 
       <section className="mb-10">
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Tier classification</h2>
+        <h2 id="tier-classification" className="mb-3 text-lg font-semibold text-foreground">Tier classification</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           <code className="font-mono">classifyRisk(scheme, ratioPct)</code> picks the highest tier whose{" "}
           <code className="font-mono">minRatioPct</code> is at or below the observed ratio, for that scheme.{" "}
@@ -133,7 +139,7 @@ export default function RiskMonitoringDocsPage() {
       </section>
 
       <section>
-        <h2 className="mb-3 text-lg font-semibold text-foreground">Mock descriptor seeds</h2>
+        <h2 id="mock-descriptor-seeds" className="mb-3 text-lg font-semibold text-foreground">Mock descriptor seeds</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
           Four fabricated descriptor profiles (<code className="font-mono">DESCRIPTOR_SEEDS</code>) exercise
           every tier:
