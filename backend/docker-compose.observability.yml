@@ -1,0 +1,49 @@
+# T7.2/T7.3, ADR-0009: optional overlay adding Prometheus + Grafana on
+# top of the core dev stack, WITHOUT changing what `make dev`
+# (docker-compose.yml alone) boots. Run both together:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.observability.yml up
+#
+# Grafana: http://localhost:3001 (admin/admin, per Grafana's own default —
+# change it if this ever runs anywhere reachable). The "Payment
+# Orchestrator" dashboard is auto-provisioned from
+# docs/dashboards/payment-orchestrator.json.
+# Prometheus: http://localhost:9090.
+#
+# NOT validated end-to-end (no Docker daemon in this build sandbox —
+# same disclosed limitation as the rest of docker-compose.yml, see the
+# Milestone 0 summary and ADR-0009's Consequences section).
+
+name: payment-orchestrator
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    volumes:
+      - ./docs/dashboards/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docs/dashboards/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - orchestrator_prometheus_data:/prometheus
+    ports:
+      - '9090:9090'
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+    volumes:
+      - ./docs/dashboards/grafana-provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./docs/dashboards/grafana-provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./docs/dashboards/payment-orchestrator.json:/etc/grafana/provisioning/dashboards/files/payment-orchestrator.json:ro
+      - orchestrator_grafana_data:/var/lib/grafana
+    ports:
+      - '3001:3000' # host 3001, since the api container already owns 3000
+
+volumes:
+  orchestrator_prometheus_data:
+  orchestrator_grafana_data:

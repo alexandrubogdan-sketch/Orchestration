@@ -1,0 +1,111 @@
+{
+  "title": "Payment Orchestrator",
+  "uid": "payment-orchestrator",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "timezone": "utc",
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "tags": ["payment-orchestrator", "as-code"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "HTTP request duration (p50 / p95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, route))",
+          "legendFormat": "p50 {{route}}"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, route))",
+          "legendFormat": "p95 {{route}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Webhook inbox backlog (T3.1/T7.2)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [{ "expr": "webhooks_inbox_backlog", "legendFormat": "{{psp}}" }]
+    },
+    {
+      "id": 3,
+      "title": "Webhook DLQ depth (T3.4)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [{ "expr": "webhooks_dlq_depth", "legendFormat": "{{psp}}" }]
+    },
+    {
+      "id": 4,
+      "title": "Webhook signature-invalid rate (T3.1/T3.6)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "expr": "rate(webhooks_signature_invalid_total[5m])", "legendFormat": "{{psp}}" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Circuit breaker state per psp_account (T5.3)",
+      "type": "state-timeline",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "description": "0=closed, 1=half_open, 2=open",
+      "targets": [{ "expr": "psp_circuit_breaker_state", "legendFormat": "{{psp_account_id}}" }]
+    },
+    {
+      "id": 6,
+      "title": "Unmapped decline codes (T1.4)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "increase(payments_unmapped_decline_code_total[1h])",
+          "legendFormat": "{{psp}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Open recon_exceptions, by type (T6.3/T6.4)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [{ "expr": "recon_exceptions_open_total", "legendFormat": "{{type}}" }]
+    },
+    {
+      "id": 8,
+      "title": "Net reconciliation discrepancy, per currency (T6.4)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "description": "captured - refunded - paid_out. Should stay >= 0; negative needs immediate investigation.",
+      "targets": [
+        {
+          "expr": "ledger_net_reconciliation_discrepancy_minor_units",
+          "legendFormat": "{{currency}}"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Stuck payments, by state (T6.4)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "targets": [{ "expr": "payments_stuck_total", "legendFormat": "{{state}}" }]
+    },
+    {
+      "id": 10,
+      "title": "Webhook invariant violations (rejected transitions)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "targets": [
+        {
+          "expr": "rate(webhooks_invariant_violation_total[15m])",
+          "legendFormat": "{{psp}}"
+        }
+      ]
+    }
+  ]
+}

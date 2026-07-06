@@ -1,0 +1,20 @@
+{
+  "id": "evt_1PQcapturable000",
+  "object": "event",
+  "type": "payment_intent.amount_capturable_updated",
+  "api_version": "2026-06-24.dahlia",
+  "created": 1735776000,
+  "data": {
+    "object": {
+      "id": "pi_1PQcapturable",
+      "object": "payment_intent",
+      "amount": 3000,
+      "amount_capturable": 3000,
+      "currency": "usd",
+      "status": "requires_capture",
+      "capture_method": "manual",
+      "last_payment_error": null,
+      "metadata": { "payment_id": "pay_01H0000000000000000000006" }
+    }
+  }
+}

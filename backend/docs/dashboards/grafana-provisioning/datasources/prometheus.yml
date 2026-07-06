@@ -1,0 +1,11 @@
+# T7.2: auto-provisions the Prometheus datasource on Grafana boot —
+# "as-code" applies to the datasource wiring too, not just the
+# dashboard panels.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false

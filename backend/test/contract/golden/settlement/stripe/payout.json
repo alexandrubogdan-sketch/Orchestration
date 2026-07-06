@@ -1,0 +1,8 @@
+{
+  "id": "po_1PAYOUT",
+  "object": "payout",
+  "amount": 1912,
+  "currency": "usd",
+  "status": "paid",
+  "arrival_date": 1750100000
+}

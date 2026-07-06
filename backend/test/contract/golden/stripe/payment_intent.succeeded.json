@@ -1,0 +1,32 @@
+{
+  "id": "evt_1PQsucceeded000",
+  "object": "event",
+  "type": "payment_intent.succeeded",
+  "api_version": "2026-06-24.dahlia",
+  "created": 1735776000,
+  "data": {
+    "object": {
+      "id": "pi_1PQsucceeded",
+      "object": "payment_intent",
+      "amount": 1999,
+      "currency": "usd",
+      "status": "succeeded",
+      "capture_method": "automatic",
+      "client_secret": "pi_1PQsucceeded_secret_abc123",
+      "last_payment_error": null,
+      "metadata": { "payment_id": "pay_01H0000000000000000000001" },
+      "latest_charge": {
+        "id": "ch_1PQsucceeded",
+        "object": "charge",
+        "payment_method_details": {
+          "type": "card",
+          "card": {
+            "brand": "visa",
+            "last4": "4242",
+            "network_transaction_id": "MCC1234567890"
+          }
+        }
+      }
+    }
+  }
+}

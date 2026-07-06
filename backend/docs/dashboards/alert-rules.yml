@@ -1,0 +1,118 @@
+# T7.3: Prometheus alert rules, checked in as code rather than
+# configured by hand in an alerting UI. Every rule here reacts to a
+# metric this codebase already emits (src/observability/metrics.ts) —
+# no rule references a metric nothing sets (see the T7.2 gauge-wiring
+# fix in src/webhooks/inboxAttempts.ts for why that specific check
+# matters here).
+groups:
+  - name: payment-orchestrator.webhooks
+    rules:
+      - alert: WebhookSignatureInvalidFlood
+        # T3.6's chaos test asserts the underlying behavior (a flood of
+        # bad signatures -> 400s + this counter, zero inbox writes);
+        # this alert is what pages a human when that "flood" isn't a
+        # test, it's real traffic (stolen/rotated signing secret,
+        # someone probing the endpoint).
+        expr: rate(webhooks_signature_invalid_total[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Sustained webhook signature-verification failures for {{ $labels.psp }}'
+          description: >
+            More than 1/s invalid webhook signatures for {{ $labels.psp }}
+            over 5 minutes. Check whether the signing secret was
+            rotated without updating psp_accounts.webhook_secret_ref,
+            or whether this is abuse traffic.
+
+      - alert: WebhookDlqDepthNonZero
+        expr: webhooks_dlq_depth > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $value }} webhook_inbox row(s) in dlq for {{ $labels.psp }}'
+          description: >
+            Investigate via `make recon-report`-adjacent tooling or a
+            direct query, fix the root cause, then
+            `make replay-webhook id=<uuid>` per row.
+
+      - alert: WebhookInboxBacklogHigh
+        expr: webhooks_inbox_backlog > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'webhook_inbox backlog for {{ $labels.psp }} exceeds 100 rows'
+          description: >
+            The normalizer/apply pipeline (T3.2/T3.3) is falling
+            behind, or Hatchet dispatch is stalled — check worker
+            process health and Hatchet dashboard queue depth first.
+
+  - name: payment-orchestrator.routing
+    rules:
+      - alert: PspCircuitBreakerOpen
+        expr: psp_circuit_breaker_state == 2
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Circuit breaker OPEN for psp_account {{ $labels.psp_account_id }}'
+          description: >
+            Sustained technical-category failures against this
+            psp_account (T5.3). New payments are failing over to each
+            matching routing_rules row's fallback_psp_account_id, or
+            to the naive-fallback strategy if none is configured —
+            check that a fallback actually exists for this account.
+
+      - alert: UnmappedDeclineCodesSeen
+        expr: increase(payments_unmapped_decline_code_total[1h]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Unmapped decline code(s) seen for {{ $labels.psp }} in the last hour'
+          description: >
+            A raw decline code has no decline_code_map entry (T1.4)
+            and fell back to the `unmapped/review` classification —
+            add the missing mapping.
+
+  - name: payment-orchestrator.ledger
+    rules:
+      - alert: ReconOpenExceptions
+        expr: sum(recon_exceptions_open_total) > 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $value }} open recon_exceptions row(s)'
+          description: 'Run `make recon-report` for the breakdown by psp_account/type.'
+
+      - alert: NetReconciliationNegative
+        # captured - refunded - paid_out should never go negative — a
+        # negative value means more was paid out than was ever
+        # captured net of refunds, which is never legitimate (see
+        # src/workflow/tasks/nightlyInvariants.ts's docblock).
+        expr: ledger_net_reconciliation_discrepancy_minor_units < 0
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Net reconciliation discrepancy is NEGATIVE for {{ $labels.currency }}'
+          description: >
+            More was paid out than captured net of refunds for
+            {{ $labels.currency }} — investigate immediately, this is
+            never a normal lag-between-capture-and-payout artifact.
+
+      - alert: StuckPaymentsHigh
+        expr: payments_stuck_total > 20
+        for: 6h
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $value }} payments stuck in state {{ $labels.state }}'
+          description: >
+            Non-terminal payments older than the nightly-invariants
+            staleness threshold (default 24h) — see
+            src/workflow/tasks/nightlyInvariants.ts. Distinct from
+            T3.5's gap-detection cron, which already actively
+            re-syncs a narrower set of "awaiting webhook" states every
+            5 minutes.

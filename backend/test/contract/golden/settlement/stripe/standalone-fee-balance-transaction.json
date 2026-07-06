@@ -1,0 +1,11 @@
+{
+  "id": "txn_1STANDALONEFEE",
+  "object": "balance_transaction",
+  "amount": -200,
+  "currency": "usd",
+  "fee": 0,
+  "net": -200,
+  "type": "stripe_fee",
+  "created": 1750007200,
+  "source": null
+}

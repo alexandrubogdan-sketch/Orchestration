@@ -1,0 +1,141 @@
+# Local dev stack: postgres, redis, hatchet, api, worker (per SPEC.md).
+#
+# NOTE ON HATCHET: this uses the `hatchet-lite` image (single container,
+# bundles engine + API + dashboard), which is what Hatchet recommends for
+# dev/low-volume use — see docs/runbooks/hatchet-setup.md for the
+# production-grade multi-container alternative (separate engine/
+# dashboard/migration/setup-config services + RabbitMQ) if this ever needs
+# to look more like prod. Reference:
+# https://docs.hatchet.run/self-hosting/hatchet-lite
+#
+# ONE-TIME SETUP: hatchet-lite needs a per-tenant API token before the api/
+# worker containers can authenticate. Run `make hatchet-token` after first
+# `make dev` boot and paste the result into `.env` as
+# HATCHET_CLIENT_TOKEN, then restart api/worker. See docs/runbooks/
+# hatchet-setup.md.
+#
+# This file has been validated for YAML correctness and cross-checked
+# against Hatchet's published hatchet-lite compose reference, but has NOT
+# been run end-to-end (this was authored in a sandbox without a Docker
+# daemon) — verify with `make dev` before relying on it. See the
+# Milestone 0 summary for details.
+
+name: payment-orchestrator
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: orchestrator
+      POSTGRES_PASSWORD: orchestrator
+      POSTGRES_DB: orchestrator
+    ports:
+      - '5432:5432'
+    volumes:
+      - orchestrator_postgres_data:/var/lib/postgresql/data
+      - ./docker/init-hatchet-db.sql:/docker-entrypoint-initdb.d/init-hatchet-db.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -d orchestrator -U orchestrator']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - orchestrator_redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  hatchet:
+    image: ghcr.io/hatchet-dev/hatchet/hatchet-lite:latest
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - '8888:8888' # dashboard
+      - '7077:7077' # grpc (worker/client connections)
+    environment:
+      DATABASE_URL: 'postgresql://orchestrator:orchestrator@postgres:5432/hatchet?sslmode=disable'
+      SERVER_AUTH_COOKIE_DOMAIN: localhost
+      SERVER_AUTH_COOKIE_INSECURE: 't'
+      SERVER_GRPC_BIND_ADDRESS: '0.0.0.0'
+      SERVER_GRPC_INSECURE: 't'
+      # Other containers reach hatchet via the compose network hostname;
+      # host-side tooling (e.g. `hatchet-admin` run from your laptop)
+      # would need `localhost` instead — see docs/runbooks/hatchet-setup.md.
+      SERVER_GRPC_BROADCAST_ADDRESS: 'hatchet:7077'
+      SERVER_GRPC_PORT: '7077'
+      SERVER_URL: 'http://localhost:8888'
+      SERVER_AUTH_SET_EMAIL_VERIFIED: 't'
+      SERVER_DEFAULT_ENGINE_VERSION: 'V1'
+      SERVER_INTERNAL_CLIENT_INTERNAL_GRPC_BROADCAST_ADDRESS: 'hatchet:7077'
+    volumes:
+      - hatchet_lite_config:/config
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://localhost:8888/api/live']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  api:
+    build:
+      context: .
+      target: dev
+    restart: unless-stopped
+    command: npm run dev:api
+    env_file: .env
+    environment:
+      DATABASE_URL: 'postgres://orchestrator:orchestrator@postgres:5432/orchestrator'
+      REDIS_URL: 'redis://redis:6379'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      hatchet:
+        condition: service_healthy
+    ports:
+      - '3000:3000'
+    volumes:
+      - .:/app
+      - orchestrator_node_modules:/app/node_modules
+
+  worker:
+    build:
+      context: .
+      target: dev
+    restart: unless-stopped
+    command: npm run dev:worker
+    env_file: .env
+    environment:
+      DATABASE_URL: 'postgres://orchestrator:orchestrator@postgres:5432/orchestrator'
+      REDIS_URL: 'redis://redis:6379'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      hatchet:
+        condition: service_healthy
+    ports:
+      - '9464:9464' # worker metrics
+    volumes:
+      - .:/app
+      - orchestrator_node_modules:/app/node_modules
+
+volumes:
+  orchestrator_postgres_data:
+  orchestrator_redis_data:
+  hatchet_lite_config:
+  orchestrator_node_modules:

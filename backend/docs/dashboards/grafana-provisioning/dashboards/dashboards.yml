@@ -1,0 +1,13 @@
+# T7.2: tells Grafana to load every dashboard JSON in this directory
+# on boot — payment-orchestrator.json specifically, but any future
+# dashboard dropped in docs/dashboards/ is picked up the same way.
+apiVersion: 1
+providers:
+  - name: payment-orchestrator
+    orgId: 1
+    folder: 'Payment Orchestrator'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards/files

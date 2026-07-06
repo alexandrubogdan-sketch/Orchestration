@@ -1,0 +1,19 @@
+{
+  "id": "evt_1PQrefunded000",
+  "object": "event",
+  "type": "charge.refunded",
+  "api_version": "2026-06-24.dahlia",
+  "created": 1735776000,
+  "data": {
+    "object": {
+      "id": "ch_1PQrefunded",
+      "object": "charge",
+      "amount": 1999,
+      "amount_refunded": 1999,
+      "currency": "usd",
+      "payment_intent": "pi_1PQrefunded",
+      "refunded": true,
+      "metadata": { "payment_id": "pay_01H0000000000000000000007" }
+    }
+  }
+}

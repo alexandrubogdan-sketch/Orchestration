@@ -1,0 +1,11 @@
+{
+  "_comment": "Ambiguity fixture (see statusMapping.ts's docblock): requires_payment_method BEFORE any confirm attempt — no last_payment_error, so this must map to 'pending', not 'declined'.",
+  "id": "pi_1PQinitial",
+  "object": "payment_intent",
+  "amount": 1999,
+  "currency": "usd",
+  "status": "requires_payment_method",
+  "capture_method": "automatic",
+  "last_payment_error": null,
+  "metadata": { "payment_id": "pay_01H0000000000000000000008" }
+}
