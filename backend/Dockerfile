@@ -17,7 +17,13 @@ CMD ["npm", "run", "dev:api"]
 
 FROM base AS build
 ENV NODE_ENV=production
-RUN npm ci
+# --legacy-peer-deps: @hatchet-dev/typescript-sdk's peerOptional range on
+# @opentelemetry/exporter-trace-otlp-grpc (^0.218.0) is stricter than what
+# @opentelemetry/sdk-node actually resolves to (0.220.0) in this lockfile.
+# `npm install` (used locally/in dev) tolerates this; `npm ci` (strict) does
+# not, which only surfaced once this Dockerfile was actually built for a
+# real deploy (Railway) rather than just `next build`/`tsc` locally.
+RUN npm ci --legacy-peer-deps
 COPY . .
 RUN npm run build
 
@@ -30,7 +36,7 @@ COPY package.json package-lock.json* ./
 # container's private-network DATABASE_URL (e.g. via Railway's Console tab)
 # without needing a separate migration image. Small size tradeoff, worth it
 # for an ops task that only needs to exist at all, not be fast.
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/db ./db
 USER node
