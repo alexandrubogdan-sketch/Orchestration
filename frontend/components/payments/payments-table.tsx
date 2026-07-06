@@ -62,7 +62,7 @@ export function PaymentsTable({ payments }: { payments: Payment[] }) {
             </option>
           ))}
         </Select>
-        <span className="ml-auto text-sm text-muted">
+        <span className="ml-auto text-sm text-muted-foreground">
           {filtered.length} of {payments.length} payments
         </span>
       </div>
@@ -90,8 +90,8 @@ export function PaymentsTable({ payments }: { payments: Payment[] }) {
                   </Link>
                 </TD>
                 <TD className="text-sm">{payment.customerEmail}</TD>
-                <TD className="text-sm text-muted">{payment.product}</TD>
-                <TD className="text-sm text-muted">{payment.pspAccount}</TD>
+                <TD className="text-sm text-muted-foreground">{payment.product}</TD>
+                <TD className="text-sm text-muted-foreground">{payment.pspAccount}</TD>
                 <TD>
                   <Badge tone={payment.citMit === "mit" ? "info" : "neutral"}>
                     {payment.citMit.toUpperCase()}
@@ -103,13 +103,13 @@ export function PaymentsTable({ payments }: { payments: Payment[] }) {
                 <TD>
                   <PaymentStateBadge state={payment.state} />
                 </TD>
-                <TD className="text-sm text-muted">{formatDateTime(payment.createdAt)}</TD>
+                <TD className="text-sm text-muted-foreground">{formatDateTime(payment.createdAt)}</TD>
               </TR>
             ))}
           </TBody>
         </Table>
         {filtered.length === 0 ? (
-          <div className="p-8 text-center text-sm text-muted">No payments match these filters.</div>
+          <div className="p-8 text-center text-sm text-muted-foreground">No payments match these filters.</div>
         ) : null}
       </div>
     </div>

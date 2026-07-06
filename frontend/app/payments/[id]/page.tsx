@@ -26,7 +26,7 @@ export default async function PaymentDetailPage({
       <div className="flex-1 overflow-y-auto p-8">
         <Link
           href="/payments"
-          className="mb-6 inline-flex items-center gap-1 text-sm text-muted hover:text-foreground"
+          className="mb-6 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
           Back to payments
@@ -79,7 +79,7 @@ export default async function PaymentDetailPage({
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between border-b border-border pb-2 last:border-0 last:pb-0">
-      <span className="text-muted">{label}</span>
+      <span className="text-muted-foreground">{label}</span>
       <span className="font-medium">{children}</span>
     </div>
   );

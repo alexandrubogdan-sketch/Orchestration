@@ -8,7 +8,7 @@ const TONE_CLASSES: Record<BadgeTone, string> = {
   warning: "bg-warning-bg text-warning",
   danger: "bg-danger-bg text-danger",
   info: "bg-info-bg text-info",
-  neutral: "bg-neutral-bg text-muted",
+  neutral: "bg-neutral-bg text-muted-foreground",
   accent: "bg-accent/10 text-accent",
 };
 

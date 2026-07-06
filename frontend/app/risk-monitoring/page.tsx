@@ -89,14 +89,14 @@ export default function RiskMonitoringPage() {
             </div>
             {profile ? (
               <div className="flex flex-col gap-1.5">
-                <span className="text-sm text-muted">Merchant entity</span>
+                <span className="text-sm text-muted-foreground">Merchant entity</span>
                 <span className="flex h-9 items-center text-sm font-medium">
                   {profile.merchantEntity}
                 </span>
               </div>
             ) : null}
             <div className="ml-auto flex flex-col items-end gap-1.5">
-              <span className="text-sm text-muted">Overall status</span>
+              <span className="text-sm text-muted-foreground">Overall status</span>
               <Badge tone={worstTone} className="text-sm">
                 {worstTone === "danger"
                   ? "Action required"
@@ -138,7 +138,7 @@ export default function RiskMonitoringPage() {
         ) : (
           <Card>
             <CardContent>
-              <p className="text-sm text-muted">No risk data for this PSP yet.</p>
+              <p className="text-sm text-muted-foreground">No risk data for this PSP yet.</p>
             </CardContent>
           </Card>
         )}

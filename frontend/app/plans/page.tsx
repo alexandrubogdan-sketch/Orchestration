@@ -25,7 +25,7 @@ export default function PlansPage() {
       <Topbar title="Plans" description="Billing plans — pricing, localized currencies, and trials" />
       <div className="flex-1 overflow-y-auto p-8">
         <div className="mb-4 flex items-center justify-between">
-          <span className="text-sm text-muted">{plans.length} plan(s)</span>
+          <span className="text-sm text-muted-foreground">{plans.length} plan(s)</span>
           <Button size="sm" onClick={() => setCreating(true)}>
             <Plus className="h-3.5 w-3.5" /> Create plan
           </Button>
@@ -51,7 +51,7 @@ export default function PlansPage() {
                     </div>
                     <button
                       onClick={() => deletePlan(plan.id)}
-                      className="text-muted opacity-0 transition-opacity hover:text-danger group-hover:opacity-100"
+                      className="text-muted-foreground opacity-0 transition-opacity hover:text-danger group-hover:opacity-100"
                       title="Delete plan"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -61,7 +61,7 @@ export default function PlansPage() {
                   {defaultPrice ? (
                     <div className="text-lg font-semibold">
                       {formatMoney(defaultPrice.amountMinorUnits, defaultPrice.currency)}
-                      <span className="text-sm font-normal text-muted">
+                      <span className="text-sm font-normal text-muted-foreground">
                         {" "}
                         / {plan.billingIntervalCount === 1
                           ? plan.billingIntervalUnit.replace(/s$/, "")
@@ -80,7 +80,7 @@ export default function PlansPage() {
                     </div>
                   ) : null}
 
-                  <div className="flex items-center gap-2 text-xs text-muted">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     {plan.trial.enabled ? (
                       <Badge tone="info">
                         {plan.trial.intervalCount} {plan.trial.intervalUnit} trial
@@ -96,7 +96,7 @@ export default function PlansPage() {
         </div>
 
         {plans.length === 0 ? (
-          <div className="mt-8 text-center text-sm text-muted">No plans yet — create one to start billing.</div>
+          <div className="mt-8 text-center text-sm text-muted-foreground">No plans yet — create one to start billing.</div>
         ) : null}
       </div>
 

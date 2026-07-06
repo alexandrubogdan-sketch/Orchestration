@@ -28,7 +28,7 @@ export function TH({ className, ...props }: ThHTMLAttributes<HTMLTableCellElemen
   return (
     <th
       className={cn(
-        "px-4 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted",
+        "px-4 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-muted-foreground",
         className,
       )}
       {...props}

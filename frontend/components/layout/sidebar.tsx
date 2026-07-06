@@ -34,7 +34,7 @@ export function Sidebar() {
         </div>
         <div>
           <div className="text-sm font-semibold leading-tight">Payment Orchestrator</div>
-          <div className="text-xs text-muted">Acme Digital Goods</div>
+          <div className="text-xs text-muted-foreground">Acme Digital Goods</div>
         </div>
       </div>
 
@@ -50,7 +50,7 @@ export function Sidebar() {
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 isActive
                   ? "bg-accent/10 text-accent"
-                  : "text-muted hover:bg-neutral-bg hover:text-foreground",
+                  : "text-muted-foreground hover:bg-neutral-bg hover:text-foreground",
               )}
             >
               <Icon className="h-4 w-4" />
@@ -60,7 +60,7 @@ export function Sidebar() {
         })}
       </nav>
 
-      <div className="flex items-center justify-between gap-2 border-t border-border px-5 py-4 text-xs text-muted">
+      <div className="flex items-center justify-between gap-2 border-t border-border px-5 py-4 text-xs text-muted-foreground">
         <span className="flex items-center gap-2">
           <Building2 className="h-4 w-4" />
           US-LLC &amp; EU-BV

@@ -68,11 +68,11 @@ export function TriggerNodeView({ data, selected }: NodeProps<Node<WorkflowNodeD
         </span>
       </div>
       <div className="flex flex-col gap-1 p-3">
-        <span className="text-muted">Payment method</span>
+        <span className="text-muted-foreground">Payment method</span>
         <span className="text-sm font-medium text-foreground">
           {PAYMENT_METHOD_LABELS[paymentMethod]}
         </span>
-        <span className="text-[11px] text-muted">
+        <span className="text-[11px] text-muted-foreground">
           Every payment for this method starts here — this trigger can&apos;t be removed.
         </span>
       </div>
@@ -97,7 +97,7 @@ export function ConditionNodeView({ data, selected }: NodeProps<Node<WorkflowNod
         <span className={labelClass}>Condition</span>
         <button
           onClick={() => removeNode(workflowId, node.id)}
-          className="ml-auto text-muted hover:text-danger"
+          className="ml-auto text-muted-foreground hover:text-danger"
           title="Remove condition"
         >
           <Trash2 className="h-3.5 w-3.5" />
@@ -105,7 +105,7 @@ export function ConditionNodeView({ data, selected }: NodeProps<Node<WorkflowNod
       </div>
       <div className="flex flex-col gap-2 p-3">
         <label className="flex flex-col gap-1">
-          <span className="text-muted">Parameter</span>
+          <span className="text-muted-foreground">Parameter</span>
           <Select
             className="h-7 px-1.5 text-[11px]"
             value={condition.parameter}
@@ -123,7 +123,7 @@ export function ConditionNodeView({ data, selected }: NodeProps<Node<WorkflowNod
 
         {condition.parameter === "metadata" ? (
           <label className="flex flex-col gap-1">
-            <span className="text-muted">Metadata key (dot notation)</span>
+            <span className="text-muted-foreground">Metadata key (dot notation)</span>
             <input
               className="h-7 rounded-lg border border-border px-1.5 text-[11px] outline-none focus:border-accent"
               value={condition.metadataKey ?? ""}
@@ -174,7 +174,7 @@ export function ActionNodeView({ data, selected }: NodeProps<Node<WorkflowNodeDa
         <span className={labelClass}>{WORKFLOW_ACTION_LABELS[action.type]}</span>
         <button
           onClick={() => removeNode(workflowId, node.id)}
-          className="ml-auto text-muted hover:text-danger"
+          className="ml-auto text-muted-foreground hover:text-danger"
           title="Remove action"
         >
           <Trash2 className="h-3.5 w-3.5" />
@@ -184,7 +184,7 @@ export function ActionNodeView({ data, selected }: NodeProps<Node<WorkflowNodeDa
         {action.type === "authorize_payment" ? (
           <>
             <label className="flex flex-col gap-1">
-              <span className="text-muted">Processor</span>
+              <span className="text-muted-foreground">Processor</span>
               <Select
                 className="h-7 px-1.5 text-[11px]"
                 value={action.processor}
@@ -198,7 +198,7 @@ export function ActionNodeView({ data, selected }: NodeProps<Node<WorkflowNodeDa
               </Select>
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-muted">Fallback processor</span>
+              <span className="text-muted-foreground">Fallback processor</span>
               <Select
                 className="h-7 px-1.5 text-[11px]"
                 value={action.fallbackProcessor ?? "none"}
@@ -215,7 +215,7 @@ export function ActionNodeView({ data, selected }: NodeProps<Node<WorkflowNodeDa
               </Select>
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-muted">3D Secure</span>
+              <span className="text-muted-foreground">3D Secure</span>
               <Select
                 className="h-7 px-1.5 text-[11px]"
                 value={action.threeDsMode}
@@ -244,7 +244,7 @@ export function ActionNodeView({ data, selected }: NodeProps<Node<WorkflowNodeDa
         {action.type === "set_metadata" ? (
           <>
             <label className="flex flex-col gap-1">
-              <span className="text-muted">Key</span>
+              <span className="text-muted-foreground">Key</span>
               <input
                 className="h-7 rounded-lg border border-border px-1.5 text-[11px] outline-none focus:border-accent"
                 value={action.metadataKey ?? ""}
@@ -252,7 +252,7 @@ export function ActionNodeView({ data, selected }: NodeProps<Node<WorkflowNodeDa
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-muted">Value</span>
+              <span className="text-muted-foreground">Value</span>
               <input
                 className="h-7 rounded-lg border border-border px-1.5 text-[11px] outline-none focus:border-accent"
                 value={action.metadataValue ?? ""}
@@ -260,7 +260,7 @@ export function ActionNodeView({ data, selected }: NodeProps<Node<WorkflowNodeDa
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-muted">Destination</span>
+              <span className="text-muted-foreground">Destination</span>
               <Select
                 className="h-7 px-1.5 text-[11px]"
                 value={action.metadataDestination}
@@ -278,7 +278,7 @@ export function ActionNodeView({ data, selected }: NodeProps<Node<WorkflowNodeDa
 
         {action.type === "delay" ? (
           <label className="flex flex-col gap-1">
-            <span className="text-muted">Delay (seconds)</span>
+            <span className="text-muted-foreground">Delay (seconds)</span>
             <input
               type="number"
               min={0}
@@ -292,7 +292,7 @@ export function ActionNodeView({ data, selected }: NodeProps<Node<WorkflowNodeDa
         ) : null}
 
         {action.type === "settle_payment" || action.type === "block_payment" ? (
-          <span className="text-muted">No configuration needed.</span>
+          <span className="text-muted-foreground">No configuration needed.</span>
         ) : null}
       </div>
       <Handle type="source" position={Position.Bottom} className={sourceHandleClass} />

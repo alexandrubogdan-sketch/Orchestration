@@ -42,7 +42,7 @@ export function NodePicker({
     <div ref={ref} className="relative inline-block">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-dashed border-border bg-surface text-muted shadow-sm hover:border-accent hover:text-accent"
+        className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-dashed border-border bg-surface text-muted-foreground shadow-sm hover:border-accent hover:text-accent"
         title="Add a condition or action"
       >
         <Plus className="h-4 w-4" />
@@ -50,7 +50,7 @@ export function NodePicker({
 
       {open ? (
         <div className="absolute left-1/2 top-11 z-20 w-64 -translate-x-1/2 rounded-xl border border-border bg-surface p-2 text-xs shadow-xl">
-          <div className="flex items-center gap-1.5 px-2 py-1 font-semibold uppercase tracking-wide text-muted">
+          <div className="flex items-center gap-1.5 px-2 py-1 font-semibold uppercase tracking-wide text-muted-foreground">
             <GitBranch className="h-3 w-3" /> Conditions
           </div>
           {WORKFLOW_CONDITION_PARAMETERS.map((parameter) => (
@@ -66,7 +66,7 @@ export function NodePicker({
             </button>
           ))}
 
-          <div className="mt-1 flex items-center gap-1.5 border-t border-border px-2 py-1 pt-2 font-semibold uppercase tracking-wide text-muted">
+          <div className="mt-1 flex items-center gap-1.5 border-t border-border px-2 py-1 pt-2 font-semibold uppercase tracking-wide text-muted-foreground">
             <Zap className="h-3 w-3" /> Actions
           </div>
           {WORKFLOW_ACTION_TYPES.map((type) => (

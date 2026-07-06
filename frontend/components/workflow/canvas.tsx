@@ -92,7 +92,7 @@ export function WorkflowCanvas({ workflowId }: { workflowId: string }) {
   const workflow = useWorkflowStore((s) => s.workflows.find((w) => w.id === workflowId));
 
   if (!workflow) {
-    return <div className="flex flex-1 items-center justify-center text-sm text-muted">Workflow not found.</div>;
+    return <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">Workflow not found.</div>;
   }
 
   return (

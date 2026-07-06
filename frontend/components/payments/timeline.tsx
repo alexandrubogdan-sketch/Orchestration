@@ -56,7 +56,7 @@ export function PaymentTimeline({ events }: { events: PaymentTimelineEvent[] }) 
               aria-hidden
             />
             <div className="flex items-center gap-2">
-              <Icon className="h-4 w-4 text-muted" />
+              <Icon className="h-4 w-4 text-muted-foreground" />
               <span className="text-sm font-medium">{meta.label}</span>
               {event.declineCode ? (
                 <Badge tone="danger" className="font-mono text-[10px]">
@@ -64,7 +64,7 @@ export function PaymentTimeline({ events }: { events: PaymentTimelineEvent[] }) 
                 </Badge>
               ) : null}
             </div>
-            <div className="mt-0.5 text-xs text-muted">{formatDateTime(event.occurredAt)}</div>
+            <div className="mt-0.5 text-xs text-muted-foreground">{formatDateTime(event.occurredAt)}</div>
           </li>
         );
       })}

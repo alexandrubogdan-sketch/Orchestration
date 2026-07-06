@@ -38,7 +38,7 @@ export function CreateWorkflowDialog({ onClose }: { onClose: () => void }) {
       <div className="w-full max-w-md rounded-xl bg-surface shadow-xl">
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <h2 className="text-sm font-semibold">Create workflow</h2>
-          <button onClick={onClose} className="text-muted hover:text-foreground">
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -54,7 +54,7 @@ export function CreateWorkflowDialog({ onClose }: { onClose: () => void }) {
 
           <div className="flex flex-col gap-1.5">
             <span className="text-sm font-medium">Payment method</span>
-            <span className="text-xs text-muted">
+            <span className="text-xs text-muted-foreground">
               Each payment method can have only one workflow.
             </span>
             <div className="flex flex-col gap-2">
@@ -68,7 +68,7 @@ export function CreateWorkflowDialog({ onClose }: { onClose: () => void }) {
                     className={cn(
                       "flex items-center justify-between rounded-lg border px-3 py-2 text-sm transition-colors",
                       disabled
-                        ? "cursor-not-allowed border-border bg-neutral-bg text-muted"
+                        ? "cursor-not-allowed border-border bg-neutral-bg text-muted-foreground"
                         : paymentMethod === method
                           ? "border-accent bg-accent/10 text-accent"
                           : "border-border hover:border-accent",

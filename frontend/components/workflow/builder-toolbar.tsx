@@ -18,12 +18,12 @@ export function BuilderToolbar({ workflowId }: { workflowId: string }) {
   return (
     <>
       <div className="flex items-center gap-3 border-b border-border bg-surface px-6 py-3">
-        <Link href="/workflows" className="text-muted hover:text-foreground">
+        <Link href="/workflows" className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <div>
           <div className="text-sm font-semibold">{workflow.name}</div>
-          <div className="text-xs text-muted">{PAYMENT_METHOD_LABELS[workflow.paymentMethod]}</div>
+          <div className="text-xs text-muted-foreground">{PAYMENT_METHOD_LABELS[workflow.paymentMethod]}</div>
         </div>
         <Badge tone={workflow.state === "published" ? "success" : "neutral"}>{workflow.state}</Badge>
 
@@ -47,7 +47,7 @@ function ExportPanel({ json, onClose }: { json: string; onClose: () => void }) {
       <div className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-surface shadow-xl">
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <h2 className="text-sm font-semibold">Workflow configuration (JSON)</h2>
-          <button onClick={onClose} className="text-muted hover:text-foreground">
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="h-4 w-4" />
           </button>
         </div>

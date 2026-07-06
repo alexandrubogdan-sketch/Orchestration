@@ -24,8 +24,8 @@ export function KpiCard({
     <Card>
       <CardContent className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <span className="text-sm text-muted">{label}</span>
-          {Icon ? <Icon className="h-4 w-4 text-muted" /> : null}
+          <span className="text-sm text-muted-foreground">{label}</span>
+          {Icon ? <Icon className="h-4 w-4 text-muted-foreground" /> : null}
         </div>
         <span className="text-2xl font-semibold tracking-tight">{value}</span>
         {delta !== undefined ? (
@@ -43,7 +43,7 @@ export function KpiCard({
               )}
               {Math.abs(delta).toFixed(1)}%
             </span>
-            <span className="text-muted">{deltaLabel}</span>
+            <span className="text-muted-foreground">{deltaLabel}</span>
           </div>
         ) : null}
       </CardContent>
