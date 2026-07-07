@@ -83,15 +83,33 @@ export interface CustomerPaymentMethod {
   cardExpYear?: number;
 }
 
+/**
+ * Billing address captured at checkout — display-only, mirrors what a
+ * PSP's customer object typically carries alongside a payment method
+ * (street/city/postal/country), not a KYC-verified identity record.
+ * Surfaced on the Customers detail page's raw-payload JSON viewer.
+ */
+export interface CustomerAddress {
+  line1: string;
+  line2?: string;
+  city: string;
+  postalCode: string;
+  country: string;
+}
+
 export interface Customer {
   id: string;
   merchantEntity: "US-LLC" | "EU-BV";
+  /** Full name as captured at checkout — display-only, same rationale as `address` below. */
+  firstName: string;
+  lastName: string;
   email: string;
   /** customers.external_ref — the product's own id for this customer, if supplied. */
   externalRef?: string;
   /** Derived from the customer's payments' issuer_country/customer_country — see doc comment above. */
   country: string;
   city?: string;
+  address: CustomerAddress;
   createdAt: string;
   paymentMethods: CustomerPaymentMethod[];
 }

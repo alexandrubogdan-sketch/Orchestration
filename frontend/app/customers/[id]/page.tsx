@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { PaymentStateBadge } from "@/components/status-badge";
+import { CustomerPayloadViewer } from "@/components/customers/customer-payload-viewer";
 import { getMockCustomerById, getMockPaymentsForCustomer } from "@/lib/mock-data";
 import { COUNTRIES } from "@/lib/countries";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/utils";
@@ -28,7 +29,10 @@ export default async function CustomerDetailPage({
 
   return (
     <>
-      <Topbar title={customer.email} description={customer.id} />
+      <Topbar
+        title={`${customer.firstName} ${customer.lastName}`}
+        description={`${customer.email} · ${customer.id}`}
+      />
       <div className="flex-1 overflow-y-auto p-8">
         <Link
           href="/customers"
@@ -44,6 +48,17 @@ export default async function CustomerDetailPage({
               <CardTitle>Profile</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-3 text-sm">
+              <Row label="Full name">
+                {customer.firstName} {customer.lastName}
+              </Row>
+              <Row label="Email">{customer.email}</Row>
+              <Row label="Address">
+                <span className="text-right">
+                  {customer.address.line1}
+                  <br />
+                  {customer.address.city}, {customer.address.postalCode}
+                </span>
+              </Row>
               <Row label="Legal entity">{customer.merchantEntity}</Row>
               <Row label="Location">
                 <Badge tone="neutral">{countryName(customer.country)}</Badge>
@@ -117,6 +132,8 @@ export default async function CustomerDetailPage({
             ) : null}
           </CardContent>
         </Card>
+
+        <CustomerPayloadViewer customer={customer} className="mt-6" />
       </div>
     </>
   );

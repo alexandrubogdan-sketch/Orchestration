@@ -58,6 +58,7 @@ export function CustomersTable({ customers }: { customers: Customer[] }) {
         if (
           !c.email.toLowerCase().includes(q) &&
           !c.id.toLowerCase().includes(q) &&
+          !`${c.firstName} ${c.lastName}`.toLowerCase().includes(q) &&
           !(c.externalRef ?? "").toLowerCase().includes(q)
         ) {
           return false;
@@ -109,8 +110,9 @@ export function CustomersTable({ customers }: { customers: Customer[] }) {
                     href={`/customers/${customer.id}`}
                     className="block font-medium text-accent-foreground hover:underline"
                   >
-                    {customer.email}
+                    {customer.firstName} {customer.lastName}
                   </Link>
+                  <span className="block text-xs text-muted-foreground">{customer.email}</span>
                   <span className="font-mono text-xs text-muted-foreground">{customer.id}</span>
                 </TD>
                 <TD className="text-sm text-muted-foreground">{customer.merchantEntity}</TD>

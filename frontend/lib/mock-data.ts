@@ -5,6 +5,7 @@ import type {
   CheckoutMethod,
   CheckoutProcessorSplit,
   Customer,
+  CustomerAddress,
   CustomerPaymentMethod,
   DashboardKpis,
   DeclineBreakdownRow,
@@ -88,6 +89,55 @@ function randomEmail(rng: Rng): string {
   return `customer${randInt(rng, 1000, 9999)}@${pick(rng, DOMAINS)}`;
 }
 
+/** name.lastname@domain style, used for Customer.email once firstName/lastName exist below —
+ *  keeps the two fields visually consistent in the raw-payload JSON viewer instead of a bare
+ *  customerNNNN@ handle next to an unrelated real-looking name. */
+function nameBasedEmail(rng: Rng, firstName: string, lastName: string): string {
+  const sep = rng() < 0.5 ? "." : "";
+  const suffix = rng() < 0.3 ? String(randInt(rng, 1, 99)) : "";
+  return `${firstName.toLowerCase()}${sep}${lastName.toLowerCase()}${suffix}@${pick(rng, DOMAINS)}`;
+}
+
+const CUSTOMER_FIRST_NAMES = [
+  "Emma", "Liam", "Olivia", "Noah", "Ava", "Ethan", "Sophia", "Mason",
+  "Isabella", "Lucas", "Mia", "Henry", "Charlotte", "Leo", "Amelia",
+  "Oscar", "Harper", "Felix", "Chloe", "Gabriel", "Zoe", "Adrian",
+  "Nora", "Theo", "Layla", "Kai", "Ines", "Matteo", "Freya", "Omar",
+];
+
+const CUSTOMER_LAST_NAMES = [
+  "Larsen", "Fischer", "Moreau", "Costa", "Ivanov", "Nakamura", "Okafor",
+  "Petrov", "Almeida", "Rossi", "Muller", "Duarte", "Sorensen", "Yilmaz",
+  "Kowalski", "Andersen", "Fontaine", "Weber", "Nilsen", "Marchetti",
+];
+
+/** Generic street-name components — plausible in any of COMMON_CUSTOMER_COUNTRIES,
+ *  not a geocoded real address. Display-only, same rationale as `CustomerAddress`'s
+ *  doc comment in lib/types.ts. */
+const STREET_NAMES = [
+  "Maple", "Oak", "Cedar", "Birch", "Elm", "Willow", "Harbor", "Sunset",
+  "Highland", "River", "Lake", "Church", "Market", "Station", "Mill",
+];
+const STREET_SUFFIXES = ["St", "Ave", "Rd", "Ln", "Blvd", "Dr", "Way"];
+
+const CITY_NAMES = [
+  "Springfield", "Riverside", "Fairview", "Georgetown", "Clayton",
+  "Ashford", "Brighton", "Kingston", "Milton", "Newport", "Oakdale",
+  "Ridgewood", "Hartley", "Weston", "Dunwich", "Camberly",
+];
+
+function buildAddress(rng: Rng, country: string): CustomerAddress {
+  return {
+    line1: `${randInt(rng, 10, 9999)} ${pick(rng, STREET_NAMES)} ${pick(rng, STREET_SUFFIXES)}`,
+    city: pick(rng, CITY_NAMES),
+    postalCode:
+      country === "US"
+        ? String(randInt(rng, 10000, 99999))
+        : `${String.fromCharCode(65 + Math.floor(rng() * 26))}${randInt(rng, 1, 9)} ${randInt(rng, 1, 9)}${String.fromCharCode(65 + Math.floor(rng() * 26))}${String.fromCharCode(65 + Math.floor(rng() * 26))}`,
+    country,
+  };
+}
+
 function daysAgoIso(days: number, rng: Rng, hourJitter = 24): string {
   const d = new Date();
   d.setDate(d.getDate() - days);
@@ -146,12 +196,20 @@ function buildMockCustomers(count: number): Customer[] {
     for (let m = 0; m < methodCount; m++) {
       paymentMethods.push(buildPaymentMethod(rng, `${id}_pm${m + 1}`));
     }
+    const firstName = pick(rng, CUSTOMER_FIRST_NAMES);
+    const lastName = pick(rng, CUSTOMER_LAST_NAMES);
+    const country = randomCountry(rng);
+    const address = buildAddress(rng, country);
     customers.push({
       id,
       merchantEntity: rng() < 0.7 ? "US-LLC" : "EU-BV",
-      email: randomEmail(rng),
+      firstName,
+      lastName,
+      email: nameBasedEmail(rng, firstName, lastName),
       externalRef: rng() < 0.6 ? `ext_${randInt(rng, 100000, 999999)}` : undefined,
-      country: randomCountry(rng),
+      country,
+      city: address.city,
+      address,
       createdAt: daysAgoIso(randInt(rng, 30, 400), rng),
       paymentMethods,
     });
