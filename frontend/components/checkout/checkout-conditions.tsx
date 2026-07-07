@@ -19,8 +19,7 @@ const METHOD_DESCRIPTIONS: Record<string, string> = {
   paypal: "Let customers pay with their PayPal balance, bank account, or linked card via PayPal's own checkout flow.",
   apple_pay: "One-tap checkout for customers on Safari/iOS using a card already stored in their Apple Wallet.",
   google_pay: "One-tap checkout for customers on Chrome/Android using a card already stored in their Google account.",
-  venmo: "US-only wallet payments via Venmo's consumer app — settles in USD.",
-  cash_app: "US-only wallet payments via Cash App — settles in USD.",
+  cash_app: "US-only wallet payments via Cash App — settles in USD. Not implemented yet, so this method is permanently disabled.",
 };
 
 /**
@@ -66,7 +65,11 @@ export function CheckoutConditions() {
             className="data-[state=checked]:bg-green-500 dark:data-[state=checked]:bg-green-400"
           />
           <Label htmlFor={method.id}>{method.enabled ? "Enabled" : "Disabled"}</Label>
-          {method.locked && <span className="text-xs">(always on — can&apos;t be disabled)</span>}
+          {method.locked && (
+            <span className="text-xs">
+              {method.enabled ? "(always on — can’t be disabled)" : "(not available yet)"}
+            </span>
+          )}
         </div>
 
         <p className="pt-2 text-sm">{METHOD_DESCRIPTIONS[method.type]}</p>

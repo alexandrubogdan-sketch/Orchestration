@@ -10,11 +10,18 @@ import { CustomerPayloadViewer } from "@/components/customers/customer-payload-v
 import { getMockCustomerById, getMockPaymentsForCustomer } from "@/lib/mock-data";
 import { COUNTRIES } from "@/lib/countries";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/utils";
-import type { CustomerPaymentMethod } from "@/lib/types";
+import type { CustomerPaymentMethod, CustomerSubscriptionStatus } from "@/lib/types";
 
 const countryName = (code: string) => COUNTRIES.find((c) => c.code === code)?.name ?? code;
 
 const METHOD_ICON = { card: CreditCard, wallet: Smartphone, bank_transfer: Landmark, apm: Landmark };
+
+const SUBSCRIPTION_STATUS_TONE: Record<CustomerSubscriptionStatus, "success" | "neutral" | "warning" | "danger"> = {
+  active: "success",
+  trialing: "neutral",
+  past_due: "warning",
+  canceled: "danger",
+};
 
 export default async function CustomerDetailPage({
   params,
@@ -67,6 +74,12 @@ export default async function CustomerDetailPage({
                 <span className="font-mono text-xs">{customer.externalRef ?? "—"}</span>
               </Row>
               <Row label="Customer since">{formatDate(customer.createdAt)}</Row>
+              <Row label="Plan">{customer.subscription.planName}</Row>
+              <Row label="Subscription status">
+                <Badge tone={SUBSCRIPTION_STATUS_TONE[customer.subscription.status]}>
+                  {customer.subscription.status}
+                </Badge>
+              </Row>
               <Row label="Total payments">{payments.length}</Row>
             </CardContent>
           </Card>

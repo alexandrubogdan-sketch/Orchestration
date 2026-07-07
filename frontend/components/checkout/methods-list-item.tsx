@@ -16,7 +16,6 @@ const METHOD_ICONS: Record<CheckoutMethodType, React.ComponentType<{ className?:
   paypal: Wallet,
   apple_pay: Smartphone,
   google_pay: Smartphone,
-  venmo: Wallet,
   cash_app: Wallet,
 };
 

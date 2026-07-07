@@ -7,6 +7,8 @@ import type {
   Customer,
   CustomerAddress,
   CustomerPaymentMethod,
+  CustomerSubscription,
+  CustomerSubscriptionStatus,
   DashboardKpis,
   DeclineBreakdownRow,
   EntityBreakdownRow,
@@ -186,6 +188,37 @@ function buildPaymentMethod(rng: Rng, id: string): CustomerPaymentMethod {
   return { id, type, pspAccount, isActive: rng() < 0.9 };
 }
 
+/** Weighted so most customers are in good standing — matches a healthy
+ *  subscription book more than an even 25/25/25/25 split would. */
+const SUBSCRIPTION_STATUS_WEIGHTS: Array<[CustomerSubscriptionStatus, number]> = [
+  ["active", 0.72],
+  ["trialing", 0.1],
+  ["past_due", 0.08],
+  ["canceled", 0.1],
+];
+
+function randomSubscriptionStatus(rng: Rng): CustomerSubscriptionStatus {
+  const roll = rng();
+  let cumulative = 0;
+  for (const [status, weight] of SUBSCRIPTION_STATUS_WEIGHTS) {
+    cumulative += weight;
+    if (roll < cumulative) return status;
+  }
+  return "active";
+}
+
+function buildSubscription(rng: Rng, customerId: string, customerCreatedAtDaysAgo: number): CustomerSubscription {
+  const plan = pick(rng, defaultPlans());
+  return {
+    id: `sub_${customerId.slice(4)}`,
+    planId: plan.id,
+    planName: plan.name,
+    status: randomSubscriptionStatus(rng),
+    // Subscription always starts on/after the customer record itself.
+    createdAt: daysAgoIso(randInt(rng, 0, customerCreatedAtDaysAgo), rng),
+  };
+}
+
 function buildMockCustomers(count: number): Customer[] {
   const rng = mulberry32(99);
   const customers: Customer[] = [];
@@ -200,6 +233,7 @@ function buildMockCustomers(count: number): Customer[] {
     const lastName = pick(rng, CUSTOMER_LAST_NAMES);
     const country = randomCountry(rng);
     const address = buildAddress(rng, country);
+    const createdAtDaysAgo = randInt(rng, 30, 400);
     customers.push({
       id,
       merchantEntity: rng() < 0.7 ? "US-LLC" : "EU-BV",
@@ -210,7 +244,8 @@ function buildMockCustomers(count: number): Customer[] {
       country,
       city: address.city,
       address,
-      createdAt: daysAgoIso(randInt(rng, 30, 400), rng),
+      createdAt: daysAgoIso(createdAtDaysAgo, rng),
+      subscription: buildSubscription(rng, id, createdAtDaysAgo),
       paymentMethods,
     });
   }
@@ -922,8 +957,12 @@ export function getInitialCheckoutMethods(): CheckoutMethod[] {
     { type: "paypal", label: CHECKOUT_METHOD_LABELS.paypal, enabled: true, locked: false },
     { type: "apple_pay", label: CHECKOUT_METHOD_LABELS.apple_pay, enabled: true, locked: false },
     { type: "google_pay", label: CHECKOUT_METHOD_LABELS.google_pay, enabled: false, locked: false },
-    { type: "venmo", label: CHECKOUT_METHOD_LABELS.venmo, enabled: false, locked: false },
-    { type: "cash_app", label: CHECKOUT_METHOD_LABELS.cash_app, enabled: false, locked: false },
+    // Cash App isn't implemented yet — permanently disabled and locked
+    // (the enable switch is disabled the same way Card's always-on
+    // switch is, just in the opposite direction: "always off, can't be
+    // enabled" instead of "always on, can't be disabled"). Venmo was
+    // removed from this product entirely, not just deprioritized.
+    { type: "cash_app", label: CHECKOUT_METHOD_LABELS.cash_app, enabled: false, locked: true },
   ];
 
   return specs.map((spec, index) => ({

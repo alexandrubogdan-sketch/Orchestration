@@ -97,6 +97,22 @@ export interface CustomerAddress {
   country: string;
 }
 
+/** A customer's link to a Plan (see Plans catalog below) — kept as its
+ *  own nested object (rather than flattened fields on Customer) so the
+ *  raw-payload JSON viewer groups cleanly into customer / subscription
+ *  / paymentMethods sections, mirroring how a real API response would
+ *  separate these concerns instead of returning one flat blob. */
+export const CUSTOMER_SUBSCRIPTION_STATUSES = ["active", "trialing", "past_due", "canceled"] as const;
+export type CustomerSubscriptionStatus = (typeof CUSTOMER_SUBSCRIPTION_STATUSES)[number];
+
+export interface CustomerSubscription {
+  id: string;
+  planId: string;
+  planName: string;
+  status: CustomerSubscriptionStatus;
+  createdAt: string;
+}
+
 export interface Customer {
   id: string;
   merchantEntity: "US-LLC" | "EU-BV";
@@ -111,6 +127,7 @@ export interface Customer {
   city?: string;
   address: CustomerAddress;
   createdAt: string;
+  subscription: CustomerSubscription;
   paymentMethods: CustomerPaymentMethod[];
 }
 
@@ -640,7 +657,6 @@ export const CHECKOUT_METHOD_TYPES = [
   "paypal",
   "apple_pay",
   "google_pay",
-  "venmo",
   "cash_app",
 ] as const;
 export type CheckoutMethodType = (typeof CHECKOUT_METHOD_TYPES)[number];
@@ -650,19 +666,19 @@ export const CHECKOUT_METHOD_LABELS: Record<CheckoutMethodType, string> = {
   paypal: "PayPal",
   apple_pay: "Apple Pay",
   google_pay: "Google Pay",
-  venmo: "Venmo",
   cash_app: "Cash App",
 };
 
 /** Methods whose fixed country/currency requirement can make a
  *  configuration "invalid" if the merchant's own settings don't
  *  satisfy it — surfaced as the methods-list row's red tint, mirroring
- *  the real client's own per-method eligibility rules (e.g. Venmo/Cash
- *  App are US + USD only). This sandbox flags a method invalid purely
- *  from its own mock condition state (see isMethodConfigInvalid in
- *  lib/mock-data.ts) rather than a real merchant-country lookup. */
+ *  the real client's own per-method eligibility rules (e.g. Cash App is
+ *  US + USD only). This sandbox flags a method invalid purely from its
+ *  own mock condition state (see isMethodConfigInvalid in
+ *  lib/mock-data.ts) rather than a real merchant-country lookup.
+ *  (Cash App is permanently locked off — see getInitialCheckoutMethods
+ *  — so this entry is currently inert, kept for when it's implemented.) */
 export const CHECKOUT_METHOD_COUNTRY_LOCKS: Partial<Record<CheckoutMethodType, { country: string; currency: string }>> = {
-  venmo: { country: "US", currency: "USD" },
   cash_app: { country: "US", currency: "USD" },
 };
 

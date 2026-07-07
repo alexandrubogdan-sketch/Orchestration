@@ -75,13 +75,17 @@ const card = checkout.createElement("card", { appearance: { colorPrimary: "#6366
 card.mount("#checkout-preview-mount");`}</CodeBlock>
       </section>
 
-      <Callout tone="info" title="Only Card renders in the preview">
+      <Callout tone="info" title="Wallet buttons are simulated, not real SDK elements">
         The SDK&apos;s <code className="font-mono">mock</code> driver doesn&apos;t implement wallet/express
         checkout support (<code className="font-mono">supportsExpressCheckout()</code> returns{" "}
-        <code className="font-mono">false</code>), so enabling PayPal/Apple Pay/Google Pay/Venmo/Cash App
-        changes the methods list and conditions panel, but the live preview column only ever mounts a card
-        element. Wiring a wallet-capable preview would mean adding a mock express-checkout path to the SDK
-        itself, which was out of scope for this page.
+        <code className="font-mono">false</code>), so Card is the only method with a genuine SDK-mounted
+        element. Enabling PayPal, Apple Pay, or Google Pay renders a brand-colored button of its own directly
+        in the preview column (<code className="font-mono">components/checkout/checkout-preview.tsx</code>&apos;s{" "}
+        <code className="font-mono">WalletButton</code>) that drives a local tap-to-pay simulation
+        (processing → succeeded) — a genuine reaction to clicking each button, just not routed through the
+        SDK the way Card is. Cash App is permanently disabled (not implemented yet — its enable switch is
+        locked off, the same &quot;locked&quot; mechanism Card uses to stay always-on, just inverted) and Venmo
+        was removed from this product entirely, so neither ever appears here.
       </Callout>
 
       <section className="mt-10">
