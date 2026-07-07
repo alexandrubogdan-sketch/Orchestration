@@ -108,11 +108,11 @@ interface TrialConfig {
         </p>
       </section>
 
-      <Callout tone="warning" title="Client-side state only, and modeled on PayNext" className="mb-6">
+      <Callout tone="warning" title="Client-side state only, and modeled on AlphaPayments" className="mb-6">
         Plan edits live in a Zustand store (<code className="font-mono">lib/plan-store.ts</code>) seeded from{" "}
         <code className="font-mono">defaultPlans()</code> in <code className="font-mono">lib/mock-data.ts</code> —
         refreshing the page resets everything. This page also replaced an earlier per-customer
-        &quot;Subscriptions&quot; list and was rebuilt to match docs.paynext.com&apos;s plan-catalog model, not the
+        &quot;Subscriptions&quot; list and was rebuilt to match AlphaPayments&apos; plan-catalog model, not the
         backend&apos;s actual Milestone 8 subscriptions schema.
       </Callout>
 

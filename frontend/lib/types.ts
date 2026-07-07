@@ -288,6 +288,98 @@ export interface Workflow {
 }
 
 /* ------------------------------------------------------------------ *
+ * Workflow detail tabs — Canvas / Runs / History on a single
+ * workflow's own builder page (app/workflows/[id]/page.tsx), mirroring
+ * the real client's module/workflow (singular) WorkflowTabsComponent
+ * (element/tab/workflow-tabs.component.tsx: canvas/runs/history) —
+ * distinct from the Workflows LIST page's own Workflows/Lists tab pair
+ * in WorkflowsTab above.
+ * ------------------------------------------------------------------ */
+
+export const WORKFLOW_RUN_STATUSES = ["succeeded", "failed", "in_progress"] as const;
+export type WorkflowRunStatus = (typeof WORKFLOW_RUN_STATUSES)[number];
+
+/** One row on the workflow detail page's "Runs" tab — a single
+ *  execution of this workflow's node chain against a real (mock)
+ *  payment. `paymentId` links back to getMockPaymentById the same way
+ *  RetryAttempt.paymentId already cross-references the payments table
+ *  (see lib/mock-data.ts's Retries section doc comment). */
+export interface WorkflowRun {
+  id: string;
+  workflowId: string;
+  status: WorkflowRunStatus;
+  /** FK into Payment — the payment whose "Payment Pending" trigger fired this run. */
+  paymentId: string;
+  startedAt: string;
+  durationMs: number;
+}
+
+export const WORKFLOW_HISTORY_EVENT_TYPES = [
+  "published",
+  "draft_saved",
+  "node_added",
+  "node_removed",
+  "node_edited",
+  "reverted",
+] as const;
+export type WorkflowHistoryEventType = (typeof WORKFLOW_HISTORY_EVENT_TYPES)[number];
+
+/** One row on the workflow detail page's "History" tab — a
+ *  version/change event for this workflow, newest first. Loosely
+ *  mirrors the real client's workflow_versions rows (version/status/
+ *  author/date_published columns — see workflow-history.service.ts's
+ *  workflowHistoryColumns) adapted to this frontend's mock-data-only
+ *  model: `versionLabel` stands in for their numeric version, `detail`
+ *  carries the human-readable description ("Node added: Authorize"). */
+export interface WorkflowHistoryEvent {
+  id: string;
+  workflowId: string;
+  type: WorkflowHistoryEventType;
+  versionLabel: string;
+  detail: string;
+  actorName: string;
+  occurredAt: string;
+}
+
+/* ------------------------------------------------------------------ *
+ * Audience lists — the "Lists" tab that sits alongside Workflows in
+ * the real client's own workflows module (its own module keeps a
+ * `lists`/`workflows` tab pair backed by two separate table
+ * endpoints). A list here is a named, reusable set of match values
+ * (e.g. a set of ISO country codes, a set of BINs) meant to be
+ * referenced from a workflow condition's "is in list" operator
+ * (WORKFLOW_OPERATORS above already has `is_in_list`) instead of
+ * hand-typing the same values into every condition that needs them.
+ * This first pass is a visual/structural stand-in only — no
+ * WorkflowCondition here actually resolves `is_in_list` against one of
+ * these lists yet, see the frontend README known gaps for that wiring.
+ * ------------------------------------------------------------------ */
+
+/** What kind of values a list holds — mirrors the match parameters a
+ *  workflow condition can already target (WORKFLOW_CONDITION_PARAMETERS)
+ *  so a list is always usable as a drop-in value set for at least one
+ *  real condition parameter. */
+export const AUDIENCE_LIST_TYPES = ["country", "bin", "customer"] as const;
+export type AudienceListType = (typeof AUDIENCE_LIST_TYPES)[number];
+
+export const AUDIENCE_LIST_TYPE_LABELS: Record<AudienceListType, string> = {
+  country: "Country",
+  bin: "Card BIN",
+  customer: "Customer",
+};
+
+export interface AudienceList {
+  id: string;
+  name: string;
+  type: AudienceListType;
+  /** Number of entries currently in the list (countries, BINs, customer ids). */
+  entryCount: number;
+  authorName: string;
+  authorEmail: string;
+  createdAt: string;
+}
+
+/* ------------------------------------------------------------------ *
  * Retries / dunning policy — mirrors the real Go backend's
  * `retry_settings` table (payment-orchestrator-go/db/migrations/
  * 1735777300000_retry-settings.up.sql) one-for-one: an ordered
@@ -503,6 +595,121 @@ export interface Integration {
    *  surfaced so the VAMP/Mastercard risk-monitoring dashboard can offer a
    *  per-descriptor filter. */
   descriptors?: string[];
+}
+
+/* ------------------------------------------------------------------ *
+ * Checkout — modeled on a real orchestrator client's Checkout
+ * configurator module: a per-merchant list of payment methods (some
+ * always-on and "locked" — e.g. Card can never be fully disabled —
+ * most freely enabled/disabled and reorderable), a routing-conditions
+ * panel for the selected method, and a live preview mounted with this
+ * repo's own `@alphapayments/checkout-sdk` (payment-orchestrator-sdk),
+ * fed the currently-enabled methods/order from local state below —
+ * see app/checkout/page.tsx's top doc comment for exactly how the SDK
+ * is wired without a real network call, matching this frontend's
+ * mock-data-only convention.
+ * ------------------------------------------------------------------ */
+
+/** The payment methods this checkout configurator can toggle/reorder.
+ *  `card` mirrors the real client's own "always active, can't be
+ *  disabled" rule for card payments; every other method starts
+ *  disabled. Kept independent of ProcessorId above — a payment
+ *  *method* (what the customer sees/picks) is a different axis from a
+ *  *processor* (which PSP account settles it), and only `card`'s
+ *  conditions panel here offers processor routing. */
+export const CHECKOUT_METHOD_TYPES = [
+  "card",
+  "paypal",
+  "apple_pay",
+  "google_pay",
+  "venmo",
+  "cash_app",
+] as const;
+export type CheckoutMethodType = (typeof CHECKOUT_METHOD_TYPES)[number];
+
+export const CHECKOUT_METHOD_LABELS: Record<CheckoutMethodType, string> = {
+  card: "Card",
+  paypal: "PayPal",
+  apple_pay: "Apple Pay",
+  google_pay: "Google Pay",
+  venmo: "Venmo",
+  cash_app: "Cash App",
+};
+
+/** Methods whose fixed country/currency requirement can make a
+ *  configuration "invalid" if the merchant's own settings don't
+ *  satisfy it — surfaced as the methods-list row's red tint, mirroring
+ *  the real client's own per-method eligibility rules (e.g. Venmo/Cash
+ *  App are US + USD only). This sandbox flags a method invalid purely
+ *  from its own mock condition state (see isMethodConfigInvalid in
+ *  lib/mock-data.ts) rather than a real merchant-country lookup. */
+export const CHECKOUT_METHOD_COUNTRY_LOCKS: Partial<Record<CheckoutMethodType, { country: string; currency: string }>> = {
+  venmo: { country: "US", currency: "USD" },
+  cash_app: { country: "US", currency: "USD" },
+};
+
+/** Only `card` supports full per-condition processor routing (split
+ *  traffic across PSPs) in this simplified model — every other method
+ *  routes through whichever single processor its own integration is
+ *  connected to, so its conditions panel is the simpler inline
+ *  enable/disable + one-line description shown in
+ *  components/checkout/checkout-conditions.tsx. */
+export const CHECKOUT_METHODS_WITH_PROCESSOR_ROUTING: CheckoutMethodType[] = ["card"];
+
+export const CHECKOUT_CONDITION_MATCH_TYPES = ["equal", "not_equal", "one_of", "not_one_of"] as const;
+export type CheckoutConditionMatchType = (typeof CHECKOUT_CONDITION_MATCH_TYPES)[number];
+
+export const CHECKOUT_CONDITION_MATCH_LABELS: Record<CheckoutConditionMatchType, string> = {
+  equal: "Equals",
+  not_equal: "Does not equal",
+  one_of: "One of",
+  not_one_of: "Not one of",
+};
+
+/** A single routed processor split within a condition block (or the
+ *  catch-all "merchant split" below it) — `sharePercent` values across
+ *  one block/split should sum to 100, matching the real client's own
+ *  percentage-split routing UI. */
+export interface CheckoutProcessorSplit {
+  id: string;
+  processor: ProcessorId;
+  sharePercent: number;
+}
+
+/** One reorderable routing rule under a card-like method's conditions
+ *  panel: "when customer country is {matchType} {countries}, route to
+ *  these processors." Mirrors the real client's per-condition-block +
+ *  catch-all merchant-split structure, simplified to a single
+ *  country-match condition per block (the real client also supports
+ *  currency/metadata matchers — out of scope for this first pass, see
+ *  frontend README known gaps). */
+export interface CheckoutConditionBlock {
+  id: string;
+  countryMatchType: CheckoutConditionMatchType;
+  countries: string[];
+  splits: CheckoutProcessorSplit[];
+}
+
+/** One payment method row in the configurator's Active/Inactive list.
+ *  `order` is the position within its own enabled/disabled bucket —
+ *  the methods-list component derives display order directly from
+ *  array order in the store rather than sorting by this field, but
+ *  it's kept on the type since the real client's backend DTO
+ *  (`is_active`/`order` on ICheckoutValue) persists it explicitly. */
+export interface CheckoutMethod {
+  id: string;
+  type: CheckoutMethodType;
+  label: string;
+  enabled: boolean;
+  /** Card can never be fully disabled — mirrors the real client's
+   *  own "locked" methods rule (see methods-list-item component). */
+  locked: boolean;
+  order: number;
+  /** Only meaningful for methods in CHECKOUT_METHODS_WITH_PROCESSOR_ROUTING. */
+  conditionBlocks: CheckoutConditionBlock[];
+  /** The catch-all/default routing split applied when no condition
+   *  block above matches — the real client's "merchant split" section. */
+  merchantSplit: CheckoutProcessorSplit[];
 }
 
 /* ------------------------------------------------------------------ *

@@ -1,4 +1,9 @@
 import type {
+  AudienceList,
+  AudienceListType,
+  CheckoutConditionBlock,
+  CheckoutMethod,
+  CheckoutProcessorSplit,
   Customer,
   CustomerPaymentMethod,
   DashboardKpis,
@@ -10,6 +15,7 @@ import type {
   PaymentState,
   PaymentTimelineEvent,
   Plan,
+  ProcessorId,
   RetryAttempt,
   RetryAttemptOutcome,
   TeamInvite,
@@ -17,6 +23,15 @@ import type {
   TeamRole,
   VolumePoint,
   Workflow,
+  WorkflowHistoryEvent,
+  WorkflowHistoryEventType,
+  WorkflowRun,
+  WorkflowRunStatus,
+} from "./types";
+import {
+  CHECKOUT_METHOD_COUNTRY_LOCKS,
+  CHECKOUT_METHOD_LABELS,
+  WORKFLOW_HISTORY_EVENT_TYPES,
 } from "./types";
 import { COUNTRIES } from "./countries";
 
@@ -646,4 +661,235 @@ let cachedRetryAttempts: RetryAttempt[] | undefined;
 export function getMockRetryAttempts(count = 24): RetryAttempt[] {
   cachedRetryAttempts ??= buildMockRetryAttempts(count);
   return cachedRetryAttempts;
+}
+
+/* ------------------------------------------------------------------ *
+ * Workflow detail — Runs / History tabs on a single workflow's own
+ * builder page (app/workflows/[id]/page.tsx, components/workflow/
+ * workflow-runs-table.tsx + workflow-history-list.tsx). Mirrors the
+ * real client's module/workflow (singular) WorkflowRunsComponent /
+ * WorkflowHistoryComponent — see workflow-history.service.ts's
+ * workflowHistoryColumns for the version/status/author/date_published
+ * shape this loosely follows. Each generator is seeded from the
+ * workflow's own id (hashString) rather than a fixed constant, so
+ * every workflow gets its own stable-but-different run/history feed
+ * instead of every workflow showing identical rows.
+ * ------------------------------------------------------------------ */
+
+const WORKFLOW_RUN_STATUS_WEIGHTS: { status: WorkflowRunStatus; weight: number }[] = [
+  { status: "succeeded", weight: 0.72 },
+  { status: "failed", weight: 0.18 },
+  { status: "in_progress", weight: 0.1 },
+];
+
+function pickWeightedRunStatus(rng: Rng): WorkflowRunStatus {
+  const roll = rng();
+  let cumulative = 0;
+  for (const { status, weight } of WORKFLOW_RUN_STATUS_WEIGHTS) {
+    cumulative += weight;
+    if (roll < cumulative) return status;
+  }
+  return WORKFLOW_RUN_STATUS_WEIGHTS.at(-1)!.status;
+}
+
+/** "Runs" tab — individual executions of this workflow's node chain,
+ *  newest first. Each run is tied to a real (mock) payment id the same
+ *  way RetryAttempt.paymentId cross-references the payments table
+ *  above, so a run row can link out to a real payment detail page. */
+export function getMockWorkflowRuns(workflowId: string, count = 18): WorkflowRun[] {
+  const rng = mulberry32(hashString(workflowId));
+  const payments = getMockPayments();
+  const runs: WorkflowRun[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const payment = pick(rng, payments);
+    const status = pickWeightedRunStatus(rng);
+    runs.push({
+      id: `run_${(700000 + i).toString(36)}`,
+      workflowId,
+      status,
+      paymentId: payment.id,
+      startedAt: daysAgoIso(randInt(rng, 0, 21), rng),
+      durationMs: status === "in_progress" ? randInt(rng, 200, 1800) : randInt(rng, 180, 5200),
+    });
+  }
+  return runs.sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1));
+}
+
+const WORKFLOW_HISTORY_ACTORS = ["Alex Bogdan", "Priya Kapoor", "Marcus Chen", "Elena Novak"];
+
+const WORKFLOW_HISTORY_NODE_LABELS = ["Authorize", "Condition: Issuer country", "Settle payment", "Block payment"];
+
+/** Builds one history event of `type` with a version label that
+ *  decrements as we go further back in time (v(count) newest -> v1
+ *  oldest), matching a real version-history log where the most recent
+ *  entry is the highest version number. */
+function buildHistoryEvent(
+  rng: Rng,
+  workflowId: string,
+  index: number,
+  versionNumber: number,
+  daysAgo: number,
+): WorkflowHistoryEvent {
+  const actor = pick(rng, WORKFLOW_HISTORY_ACTORS);
+  const type: WorkflowHistoryEventType =
+    index === 0 ? "published" : pick(rng, WORKFLOW_HISTORY_EVENT_TYPES.filter((t) => t !== "published"));
+
+  const detailByType: Record<WorkflowHistoryEventType, string> = {
+    published: `Published v${versionNumber}`,
+    draft_saved: `Draft saved (v${versionNumber})`,
+    node_added: `Node added: ${pick(rng, WORKFLOW_HISTORY_NODE_LABELS)}`,
+    node_removed: `Node removed: ${pick(rng, WORKFLOW_HISTORY_NODE_LABELS)}`,
+    node_edited: `Node edited: ${pick(rng, WORKFLOW_HISTORY_NODE_LABELS)}`,
+    reverted: `Reverted to v${Math.max(versionNumber - 1, 1)}`,
+  };
+
+  return {
+    id: `wfh_${(800000 + index).toString(36)}`,
+    workflowId,
+    type,
+    versionLabel: `v${versionNumber}`,
+    detail: detailByType[type],
+    actorName: actor,
+    occurredAt: daysAgoIso(daysAgo, rng),
+  };
+}
+
+/** "History" tab — reverse-chronological version/change log for this
+ *  workflow (e.g. "Published v3", "Draft saved", "Node added:
+ *  Authorize"), newest first. Newest entry is always `published` so
+ *  the top of the list always reflects a real "current live version",
+ *  matching how the real client's own history tab reads. */
+export function getMockWorkflowHistory(workflowId: string, count = 9): WorkflowHistoryEvent[] {
+  const rng = mulberry32(hashString(workflowId) ^ 0x5bd1e995);
+  const events: WorkflowHistoryEvent[] = [];
+  let daysAgo = 0;
+
+  for (let i = 0; i < count; i++) {
+    const versionNumber = count - i;
+    daysAgo += randInt(rng, 1, 6);
+    events.push(buildHistoryEvent(rng, workflowId, i, versionNumber, daysAgo));
+  }
+  return events;
+}
+
+/* ------------------------------------------------------------------ *
+ * Audience lists — the "Lists" tab on the Workflows page
+ * (app/workflows/page.tsx), sitting alongside the workflows table the
+ * same way it does in the real client's own workflows module (see
+ * lib/types.ts's AudienceList doc comment for how these are meant to
+ * relate to a workflow condition's `is_in_list` operator). Names below
+ * are the kind of reusable value sets a merchant's risk/ops team would
+ * actually maintain — a mix of country-code, BIN, and customer-id
+ * lists — sized small since these are hand-curated allow/deny sets,
+ * not a bulk data table like payments/customers.
+ * ------------------------------------------------------------------ */
+
+const AUDIENCE_LIST_SEEDS: Array<{ name: string; type: AudienceListType; entryCount: number }> = [
+  { name: "High-risk countries", type: "country", entryCount: 14 },
+  { name: "VIP customers", type: "customer", entryCount: 132 },
+  { name: "EU launch countries", type: "country", entryCount: 27 },
+  { name: "Known fraud BINs", type: "bin", entryCount: 46 },
+  { name: "Sanctioned countries", type: "country", entryCount: 9 },
+  { name: "Chargeback watchlist", type: "customer", entryCount: 58 },
+];
+
+function buildMockAudienceLists(): AudienceList[] {
+  const rng = mulberry32(41);
+  const authors = getMockTeamMembers();
+
+  return AUDIENCE_LIST_SEEDS.map((seed, i) => {
+    const author = authors.length ? pick(rng, authors) : undefined;
+    return {
+      id: `list-${(600000 + i).toString(36)}`,
+      name: seed.name,
+      type: seed.type,
+      entryCount: seed.entryCount,
+      authorName: author?.name ?? "Alex Bogdan",
+      authorEmail: author?.email ?? "alex.bogdan@alphapayments.dev",
+      createdAt: daysAgoIso(randInt(rng, 5, 240), rng),
+    };
+  }).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+}
+
+let cachedAudienceLists: AudienceList[] | undefined;
+export function getMockAudienceLists(): AudienceList[] {
+  cachedAudienceLists ??= buildMockAudienceLists();
+  return cachedAudienceLists;
+}
+
+/* ------------------------------------------------------------------ *
+ * Checkout — initial methods list for the Checkout configurator
+ * (app/checkout/page.tsx / lib/checkout-store.ts). Card starts enabled
+ * and locked (mirrors the real client's "can't be fully disabled"
+ * rule); every other method starts disabled, matching the real
+ * client's own default-methods list
+ * (checkout.constant.tsx#initialPaymentMethods). Not currency/random —
+ * this is a fixed starting *shape* the store then mutates locally, not
+ * a randomized fixture, so there is no mulberry32 seed here unlike the
+ * tables above.
+ * ------------------------------------------------------------------ */
+
+let checkoutMethodIdCounter = 0;
+export function nextCheckoutId(prefix: string): string {
+  checkoutMethodIdCounter += 1;
+  return `${prefix}_${checkoutMethodIdCounter.toString(36)}`;
+}
+
+function defaultMerchantSplit(processor: ProcessorId = "stripe"): CheckoutProcessorSplit[] {
+  return [{ id: nextCheckoutId("split"), processor, sharePercent: 100 }];
+}
+
+/** One condition block seeded on Card by default, so the configurator
+ *  opens with a non-empty, immediately-editable example of the
+ *  reorderable condition-block UI (the real client's own Card
+ *  conditions panel is rarely truly empty in a live account either). */
+function defaultCardConditionBlocks(): CheckoutConditionBlock[] {
+  return [
+    {
+      id: nextCheckoutId("cond"),
+      countryMatchType: "one_of",
+      countries: ["US", "CA"],
+      splits: [
+        { id: nextCheckoutId("split"), processor: "stripe", sharePercent: 70 },
+        { id: nextCheckoutId("split"), processor: "solidgate", sharePercent: 30 },
+      ],
+    },
+  ];
+}
+
+export function getInitialCheckoutMethods(): CheckoutMethod[] {
+  const specs: Array<Pick<CheckoutMethod, "type" | "label" | "enabled" | "locked">> = [
+    { type: "card", label: CHECKOUT_METHOD_LABELS.card, enabled: true, locked: true },
+    { type: "paypal", label: CHECKOUT_METHOD_LABELS.paypal, enabled: true, locked: false },
+    { type: "apple_pay", label: CHECKOUT_METHOD_LABELS.apple_pay, enabled: true, locked: false },
+    { type: "google_pay", label: CHECKOUT_METHOD_LABELS.google_pay, enabled: false, locked: false },
+    { type: "venmo", label: CHECKOUT_METHOD_LABELS.venmo, enabled: false, locked: false },
+    { type: "cash_app", label: CHECKOUT_METHOD_LABELS.cash_app, enabled: false, locked: false },
+  ];
+
+  return specs.map((spec, index) => ({
+    id: nextCheckoutId("method"),
+    ...spec,
+    order: index,
+    conditionBlocks: spec.type === "card" ? defaultCardConditionBlocks() : [],
+    merchantSplit: defaultMerchantSplit(),
+  }));
+}
+
+/** A method is flagged "invalid" (red-tinted row) when it's enabled but
+ *  its fixed country/currency requirement (CHECKOUT_METHOD_COUNTRY_LOCKS)
+ *  isn't satisfiable from its own condition blocks/merchant split — in
+ *  this simplified mock model, that's approximated as "enabled, has a
+ *  hard country/currency lock, AND its condition blocks explicitly
+ *  restrict to a country outside that lock." Mirrors the real client's
+ *  own invalidMethodTypes concept (methods-list-item.service) without
+ *  needing a real merchant-country/currency lookup. */
+export function isCheckoutMethodInvalid(method: CheckoutMethod): boolean {
+  if (!method.enabled) return false;
+  const lock = CHECKOUT_METHOD_COUNTRY_LOCKS[method.type];
+  if (!lock) return false;
+  return method.conditionBlocks.some(
+    (block) => block.countries.length > 0 && !block.countries.includes(lock.country),
+  );
 }

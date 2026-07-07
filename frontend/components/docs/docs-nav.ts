@@ -10,8 +10,8 @@ export interface DocsNavGroup {
 
 /**
  * Left-nav structure for the /docs section, grouped by topic in the
- * same spirit as docs.paynext.com's sidebar (Introduction / Guides /
- * API reference / Webhooks, etc.) — adapted to this app's own areas.
+ * same spirit as a typical payments-platform docs sidebar (Introduction /
+ * Guides / API reference / Webhooks, etc.) — adapted to this app's own areas.
  */
 export const DOCS_NAV: DocsNavGroup[] = [
   {
@@ -31,6 +31,7 @@ export const DOCS_NAV: DocsNavGroup[] = [
   {
     title: "Configuration",
     items: [
+      { href: "/docs/checkout", label: "Checkout configurator" },
       { href: "/docs/workflows", label: "Workflows" },
       { href: "/docs/retries", label: "Retries & dunning" },
       { href: "/docs/plans", label: "Plans & billing" },

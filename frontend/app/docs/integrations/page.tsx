@@ -127,7 +127,7 @@ export default function IntegrationsDocsPage() {
           </a>
           ). <code className="font-mono">ProcessorId</code> in this frontend is intentionally restricted to{" "}
           <code className="font-mono">[&quot;stripe&quot;, &quot;solidgate&quot;, &quot;paypal&quot;]</code> to match, even though
-          PayNext&apos;s own reference model (which this UI is otherwise modeled on) supports Braintree and
+          AlphaPayments&apos; own reference model (which this UI is otherwise modeled on) supports Braintree and
           Unlimit too.
         </p>
       </section>

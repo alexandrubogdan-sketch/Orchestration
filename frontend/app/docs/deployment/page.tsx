@@ -142,7 +142,7 @@ worker    — npm run dev:worker, same deps, exposes :9464 (metrics only)`}</Cod
               <CardTitle>Not mechanical — Plans, Integrations, Workflows</CardTitle>
             </CardHeader>
             <CardContent className="text-sm text-muted-foreground">
-              These were rebuilt to match PayNext&apos;s dashboard model, not this backend&apos;s schema. The
+              These were rebuilt to match AlphaPayments&apos; dashboard model, not this backend&apos;s schema. The
               backend has no plans-catalog table, no endpoint for storing processor credentials, and a
               routing-rules table that doesn&apos;t resemble a trigger/condition/action chain. See each page&apos;s
               own docs for the specific mismatches — this needs schema/API design work, not just a fetch

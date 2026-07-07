@@ -22,11 +22,11 @@ export default function WorkflowsDocsPage() {
         .
       </p>
 
-      <Callout tone="warning" title="Modeled on PayNext, not on this backend's schema" className="mb-8">
+      <Callout tone="warning" title="Modeled on AlphaPayments, not on this backend's schema" className="mb-8">
         The Workflows UI (<code className="font-mono">lib/types.ts</code>, <code className="font-mono">
           lib/workflow-store.ts
         </code>
-        ) was deliberately built to match docs.paynext.com&apos;s workflow model, not the backend&apos;s actual
+        ) was deliberately built to match AlphaPayments&apos; workflow model, not the backend&apos;s actual
         Milestone 5 routing engine. The backend&apos;s real <code className="font-mono">routing_rules</code>{" "}
         table (see{" "}
         <a
@@ -130,7 +130,7 @@ export default function WorkflowsDocsPage() {
           <a href="/docs/adapters" className="font-medium text-accent-foreground underline underline-offset-2">
             PSP adapters &amp; declines
           </a>
-          ), even though PayNext&apos;s own model supports more (Braintree, Unlimit).
+          ), even though AlphaPayments&apos; own model supports more (Braintree, Unlimit).
         </p>
       </section>
 
@@ -166,8 +166,8 @@ export default function WorkflowsDocsPage() {
           <code className="font-mono">draft</code> and <code className="font-mono">published</code> in local
           Zustand state — there is no version history, no diffing, and nothing downstream currently reads
           this flag to decide whether a workflow actually affects live routing (because nothing is wired
-          to the backend at all yet). The trigger node at index 0 can never be removed, matching PayNext&apos;s
-          rule that every trigger is tied to a payment method.
+          to the backend at all yet). The trigger node at index 0 can never be removed, matching
+          AlphaPayments&apos; rule that every trigger is tied to a payment method.
         </p>
       </section>
 
@@ -233,7 +233,7 @@ export default function WorkflowsDocsPage() {
             <ul className="list-disc space-y-1.5 pl-4">
               <li>UI: linear trigger→condition→action chain. Backend: flat rule list with a match filter and priority order — no chain, no per-step actions.</li>
               <li>UI: fallback processor is per-action. Backend: fallback is per-rule (<code className="font-mono">fallback_psp_account_id</code>) and only triggered for technical failures via the circuit breaker, not a generic &quot;if declined&quot; branch.</li>
-              <li>UI: no AND/OR condition groups or Split (percentage) node. Backend has neither concept either — but PayNext&apos;s real product does, so this is a simplification versus the reference model, not versus the backend.</li>
+              <li>UI: no AND/OR condition groups or Split (percentage) node. Backend has neither concept either — but AlphaPayments&apos; real product does, so this is a simplification versus the reference model, not versus the backend.</li>
             </ul>
           </CardContent>
         </Card>

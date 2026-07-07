@@ -13,6 +13,7 @@ import {
   ShieldAlert,
   BookOpen,
   Users2,
+  PanelsTopLeft,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/payments", label: "Payments", icon: CreditCard },
   { href: "/customers", label: "Customers", icon: Users },
+  { href: "/checkout", label: "Checkout", icon: PanelsTopLeft },
   { href: "/plans", label: "Plans", icon: Repeat },
   { href: "/integrations", label: "Integrations", icon: Plug },
   { href: "/team", label: "Team", icon: Users2 },
