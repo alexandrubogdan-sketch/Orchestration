@@ -1,8 +1,9 @@
 # Worker process build — see deploy/Dockerfile.api's top comment for
-# the full rationale shared by both (never built, go.mod version pins,
-# GOTOOLCHAIN=auto, why `go mod tidy` runs at build time). This file
-# only documents what's different for the worker.
-FROM golang:1.24-bookworm AS build
+# the full rationale shared by both (go.mod version pins, why `go mod
+# tidy` runs at build time, and the 2026-07-07 GOTOOLCHAIN=local fix
+# that landed golang:1.26.4-bookworm as the pinned base image). This
+# file only documents what's different for the worker.
+FROM golang:1.26.4-bookworm AS build
 WORKDIR /src
 
 COPY go.mod ./

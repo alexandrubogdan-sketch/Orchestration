@@ -18,18 +18,19 @@
 # that surfaces, not before.
 #
 # Base image version: go.mod requires `go 1.26` (github.com/hatchet-dev/
-# hatchet v0.92.6's own minimum). golang:1.26 may not exist as a
-# published Docker Hub tag yet depending on exactly when Go 1.26 itself
-# shipped relative to whenever this actually gets built — golang:1.24
-# is used below as a conservative floor specifically BECAUSE Go's
-# GOTOOLCHAIN=auto default (Go 1.21+, unset here so the default
-# applies) will detect go.mod's `go 1.26` directive and download that
-# exact toolchain automatically during the RUN steps below, as long as
-# this build has network access (true on Railway, never tested here).
-# If golang:1.26 (or newer) has shipped by the time this is actually
-# built, bumping this FROM line removes a redundant toolchain download
-# but is not required for correctness.
-FROM golang:1.24-bookworm AS build
+# hatchet v0.92.6's own minimum). UPDATE (first real build attempt,
+# 2026-07-07 on Railway): golang:1.24-bookworm was tried first, on the
+# theory that Go's GOTOOLCHAIN=auto default would detect go.mod's `go
+# 1.26` directive and download that exact toolchain during the RUN
+# steps below. That assumption was wrong — the official golang Docker
+# images set ENV GOTOOLCHAIN=local (for build reproducibility without
+# network), so `go mod tidy` failed outright with "go.mod requires go
+# >= 1.26 (running go 1.24.13; GOTOOLCHAIN=local)" rather than
+# downloading anything. Confirmed golang:1.26.4-bookworm is a real,
+# published Docker Hub tag (Go 1.26 shipped well before this build
+# date), so pinning directly to it instead of relying on any
+# auto-download behavior.
+FROM golang:1.26.4-bookworm AS build
 WORKDIR /src
 
 # Copy just the module files first so this layer caches independently

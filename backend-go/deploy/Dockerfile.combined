@@ -25,11 +25,12 @@
 #     switch back to the moment a second compute service is available
 #     (Hobby plan, or freeing a resource slot some other way).
 #
-# Everything else about this file — the "never been built" caveat, the
-# go.mod version-pin rationale, the go.sum-via-build-time-`go mod tidy`
-# rationale — is identical to Dockerfile.api's own top comment; see
-# that file rather than repeating it here.
-FROM golang:1.24-bookworm AS build
+# Everything else about this file — the go.mod version-pin rationale,
+# the go.sum-via-build-time-`go mod tidy` rationale, and the
+# 2026-07-07 GOTOOLCHAIN=local fix that landed golang:1.26.4-bookworm
+# as the pinned base image — is identical to Dockerfile.api's own top
+# comment; see that file rather than repeating it here.
+FROM golang:1.26.4-bookworm AS build
 WORKDIR /src
 
 COPY go.mod ./
