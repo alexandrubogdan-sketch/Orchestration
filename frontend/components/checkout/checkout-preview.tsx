@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { loadCheckout, type CheckoutSession } from "@alphapayments/checkout-sdk";
 import { useCheckoutStore } from "@/lib/checkout-store";
+import { useEnvironmentStore } from "@/lib/environment-store";
 import { CHECKOUT_METHOD_LABELS, type CheckoutMethod } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -10,50 +11,52 @@ import { cn } from "@/lib/utils";
  * Live preview column — mirrors the real client's
  * checkout-preview.component.tsx shape (a neutral-100 card with a
  * title, mounting a real embeddable checkout instance into a fixed
- * container id), but genuinely wired to THIS repo's own
- * `@alphapayments/checkout-sdk` package (payment-orchestrator-sdk)
- * rather than a vendor SDK or a static screenshot.
+ * container id), genuinely wired to THIS repo's own
+ * `@alphapayments/checkout-sdk` package (payment-orchestrator-sdk).
  *
- * No real network call: this whole frontend's established convention
- * (see lib/mock-data.ts's top doc comment) is that nothing here calls
- * a live backend. `loadCheckout()`'s only network calls are
- * `GET /checkout/{id}/public` (session config) and
- * `POST /checkout/{id}/confirm` — both go through the injectable
- * `fetchImpl` option (see payment-orchestrator-sdk/src/session.ts),
- * so a tiny in-memory fake `fetch` below answers both endpoints
- * itself, entirely client-side, using the "mock" PSP driver
- * (payment-orchestrator-sdk/src/drivers/mock-driver.ts — a real card
- * element with real Luhn/expiry/CVC validation, fake tokens, zero
- * network traffic by the driver itself). This is still the REAL SDK
- * code path end-to-end (loadCheckout -> CheckoutSession ->
- * createElement("card") -> confirm() -> classifyPaymentState()) —
- * only the two HTTP round trips are faked, exactly the seam the SDK
- * exposes `fetchImpl` for (its own README lists it as "primarily for
- * tests," which this is a legitimate extension of: a sandboxed demo
- * with no backend at all).
+ * Sandbox vs Live (sidebar toggle, lib/environment-store.ts):
  *
- * PayPal / Apple Pay / Google Pay: the SDK's `mock` driver has no
- * express-checkout/wallet support (see mock-driver.ts's
- * supportsExpressCheckout() — always false), so these three don't get
- * a real SDK-mounted element the way Card does. Instead this preview
- * renders its own lightweight, brand-colored button per enabled
- * method (not an exact reproduction of the official button assets —
- * a simplified same-color/same-wordmark stand-in built for this demo)
- * and drives the same local "processing -> succeeded" simulation Card
- * uses, so the preview genuinely reacts to clicking each button
- * instead of only ever showing Card. Cash App/Venmo never render here
- * because Cash App can never be enabled (see
- * lib/mock-data.ts#getInitialCheckoutMethods) and Venmo no longer
- * exists as a method at all.
+ * - Sandbox (default): the original, unchanged behavior. No real
+ *   network call — `loadCheckout()`'s two HTTP round trips
+ *   (GET .../public, POST .../confirm) go through an injectable
+ *   in-memory `fetchImpl` (buildFakeFetch below) that answers both
+ *   itself, using the SDK's "mock" PSP driver (real Luhn/expiry/CVC
+ *   validation, fake tokens, zero network traffic). Wallet buttons
+ *   (PayPal/Apple Pay/Google Pay) run a local setTimeout-based
+ *   "processing -> succeeded" simulation — see simulateWalletPay.
+ * - Live: creates a REAL checkout session (POST /api/checkout-sessions
+ *   — this app's own server-side proxy, see lib/backend-proxy.ts,
+ *   which holds the backend-go Bearer token so the browser never
+ *   sees it), then loads the SDK against that real session with
+ *   `apiBaseUrl` pointed at this app's own `/api` proxy routes (no
+ *   fetchImpl override — genuinely goes over the network this time).
+ *   Wallet buttons POST straight to /api/checkout/{id}/confirm with a
+ *   clearly-labeled synthetic paymentMethodRef (see payWithWallet) —
+ *   there's no real Apple Pay/Google Pay/PayPal JS SDK wired into this
+ *   demo to produce a genuinely wallet-tokenized reference, but the
+ *   backend call itself is 100% real, which is exactly what was
+ *   broken before this toggle existed (every checkout method silently
+ *   never reaching backend-go, regardless of which sidebar mode was
+ *   selected — there was no Live mode at all).
  *
- * The div id is intentionally generic ("checkout-preview-mount"),
- * renamed away from the real client's vendor-specific mount id.
+ * Until backend-go is actually deployed (see
+ * payment-orchestrator-go/MIGRATION_NOTES.md — that module has never
+ * been compiled, and Railway access to run it is still pending), Live
+ * mode's own proxy routes return a 503 ("Live backend is not
+ * configured") or a network error — surfaced here as a clear inline
+ * error state, never silently downgraded to Sandbox's fake behavior.
  */
 
 const MOCK_SESSION_ID = "cs_sandbox_preview";
 const MOCK_CLIENT_SECRET = "cs_secret_sandbox_preview";
 const MOCK_API_BASE_URL = "https://sandbox.internal.invalid";
 const PREVIEW_AMOUNT = { minorUnits: 4999, currency: "usd" };
+/** Live mode has no real merchant checkout flow feeding this preview
+ *  column a real customer — this is the one synthetic identity Live
+ *  mode's checkout-session creation call uses, clearly namespaced so
+ *  it's obviously not a real customer if it ever shows up in a real
+ *  Customers list. */
+const LIVE_PREVIEW_CUSTOMER_EMAIL = "checkout-preview@progresspartners.net";
 
 function buildFakeFetch(): typeof fetch {
   let consumed = false;
@@ -97,29 +100,86 @@ function buildFakeFetch(): typeof fetch {
   };
 }
 
-type WalletStatus = "idle" | "processing" | "succeeded";
+/** POSTs to this app's own /api/checkout-sessions proxy (holds the
+ *  backend-go Bearer token server-side) to create a REAL checkout
+ *  session — the Live-mode analogue of buildFakeFetch's "/public"
+ *  branch above, except this one actually creates a row in backend-go
+ *  rather than fabricating a response. Throws with a readable message
+ *  on any failure (503 not-configured, network error, backend 4xx/5xx)
+ *  rather than returning something the caller might mistake for
+ *  success. */
+async function createLiveCheckoutSession(): Promise<{ id: string; clientSecret: string }> {
+  const response = await fetch("/api/checkout-sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      customerEmail: LIVE_PREVIEW_CUSTOMER_EMAIL,
+      amount: PREVIEW_AMOUNT,
+      citMit: "cit",
+    }),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    let message = detail;
+    try {
+      const parsed = JSON.parse(detail) as { title?: string; detail?: string };
+      message = [parsed.title, parsed.detail].filter(Boolean).join(" — ") || detail;
+    } catch {
+      // Not JSON — use the raw text as-is.
+    }
+    throw new Error(message || `Request failed with status ${response.status}`);
+  }
+  const data = (await response.json()) as { id: string; clientSecret: string };
+  return data;
+}
+
+type WalletStatus = "idle" | "processing" | "succeeded" | "error";
 
 export function CheckoutPreview() {
   const methods = useCheckoutStore((s) => s.methods);
+  const environment = useEnvironmentStore((s) => s.environment);
   const containerRef = useRef<HTMLDivElement>(null);
   const sessionRef = useRef<CheckoutSession | null>(null);
+  const liveSessionRef = useRef<{ id: string; clientSecret: string } | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [errorDetail, setErrorDetail] = useState<string>("");
   const [paymentStatus, setPaymentStatus] = useState<"idle" | "processing" | "succeeded" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [walletStatus, setWalletStatus] = useState<Record<string, WalletStatus>>({});
+  const [walletErrors, setWalletErrors] = useState<Record<string, string>>({});
 
   const enabledMethods = methods.filter((m) => m.enabled);
   const orderedLabels = enabledMethods.map((m) => CHECKOUT_METHOD_LABELS[m.type]);
 
   useEffect(() => {
     let cancelled = false;
+    setStatus("loading");
+    setErrorDetail("");
 
-    loadCheckout({
-      apiBaseUrl: MOCK_API_BASE_URL,
-      sessionId: MOCK_SESSION_ID,
-      clientSecret: MOCK_CLIENT_SECRET,
-      fetchImpl: buildFakeFetch(),
-    })
+    async function boot() {
+      if (environment === "live") {
+        const session = await createLiveCheckoutSession();
+        liveSessionRef.current = session;
+        return loadCheckout({
+          apiBaseUrl: `${window.location.origin}/api`,
+          sessionId: session.id,
+          clientSecret: session.clientSecret,
+          // No fetchImpl override here — this is the whole point of
+          // Live mode: these two calls go over the real network, to
+          // this app's own /api/checkout/[id]/public and
+          // /api/checkout/[id]/confirm proxy routes, which forward to
+          // backend-go.
+        });
+      }
+      return loadCheckout({
+        apiBaseUrl: MOCK_API_BASE_URL,
+        sessionId: MOCK_SESSION_ID,
+        clientSecret: MOCK_CLIENT_SECRET,
+        fetchImpl: buildFakeFetch(),
+      });
+    }
+
+    boot()
       .then((session) => {
         if (cancelled) return;
         sessionRef.current = session;
@@ -133,21 +193,21 @@ export function CheckoutPreview() {
           session.registerActiveElement(card);
         }
       })
-      .catch(() => {
-        if (!cancelled) setStatus("error");
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setStatus("error");
+        setErrorDetail(err instanceof Error ? err.message : String(err));
       });
 
     return () => {
       cancelled = true;
     };
-    // Intentionally runs once per mount — the preview column re-derives
-    // its "enabled methods" summary text reactively from the store
-    // below, but the mounted card element itself only needs the mock
-    // session created once; only Card is ever enabled/disabled against
-    // a live SDK element in this simplified sandbox model (see the
-    // wallet-button doc comment above for how PayPal/Apple Pay/Google
-    // Pay are simulated instead).
-  }, []);
+    // Re-runs whenever the sidebar's Sandbox/Live toggle flips, so
+    // switching modes tears down the old session/element and boots a
+    // fresh one against the newly-selected backend rather than
+    // continuing to drive a stale session created against the other
+    // mode.
+  }, [environment]);
 
   const handlePay = async () => {
     const session = sessionRef.current;
@@ -174,19 +234,88 @@ export function CheckoutPreview() {
     }, 900);
   };
 
+  /** Live-mode wallet tap: calls this app's real
+   *  /api/checkout/[id]/confirm proxy directly (not through the SDK —
+   *  CheckoutSession.confirm() is card-element-only; there's no real
+   *  Apple Pay/Google Pay/PayPal JS SDK wired into this demo to
+   *  produce a genuinely wallet-tokenized paymentMethodRef the way the
+   *  SDK's driver.tokenize() does for Card). The paymentMethodRef sent
+   *  is a clearly-labeled synthetic value — everything ELSE about this
+   *  call is real: it hits backend-go's actual
+   *  POST /checkout/{id}/confirm route, through the Bearer-token-free,
+   *  client-secret-authenticated path that route actually expects. */
+  const payWithWallet = async (type: string) => {
+    if (walletStatus[type] === "processing" || walletStatus[type] === "succeeded") return;
+    const session = liveSessionRef.current;
+    if (!session) {
+      setWalletStatus((prev) => ({ ...prev, [type]: "error" }));
+      setWalletErrors((prev) => ({ ...prev, [type]: "No live checkout session — see the error above the preview." }));
+      return;
+    }
+
+    setWalletStatus((prev) => ({ ...prev, [type]: "processing" }));
+    setWalletErrors((prev) => ({ ...prev, [type]: "" }));
+
+    try {
+      const response = await fetch(`/api/checkout/${encodeURIComponent(session.id)}/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          clientSecret: session.clientSecret,
+          paymentMethodRef: `pm_test_wallet_${type}`,
+        }),
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Request failed with status ${response.status}`);
+      }
+      setWalletStatus((prev) => ({ ...prev, [type]: "succeeded" }));
+    } catch (err) {
+      setWalletStatus((prev) => ({ ...prev, [type]: "error" }));
+      setWalletErrors((prev) => ({
+        ...prev,
+        [type]: err instanceof Error ? err.message : String(err),
+      }));
+    }
+  };
+
+  const handleWalletClick = environment === "live" ? payWithWallet : simulateWalletPay;
+
   const hasAnyEnabled = enabledMethods.length > 0;
 
   return (
     <div className="relative flex h-fit max-w-[480px] flex-col items-center justify-center gap-4 rounded-lg bg-neutral-100 px-6 py-6 dark:bg-neutral-900 md:col-span-2 md:max-w-none [@media(min-width:1260px)]:col-span-1">
-      <p className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Checkout preview</p>
+      <div className="flex w-full items-center justify-between gap-2">
+        <p className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">Checkout preview</p>
+        <span
+          className={cn(
+            "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+            environment === "live"
+              ? "bg-red-500/15 text-red-600 dark:text-red-400"
+              : "bg-neutral-200 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400",
+          )}
+        >
+          {environment === "live" ? "Live — calls backend-go" : "Sandbox — mock only"}
+        </span>
+      </div>
 
       <p className="text-center text-xs text-muted-foreground">
         {orderedLabels.length > 0 ? `Showing: ${orderedLabels.join(", ")}` : "No payment methods enabled"}
       </p>
 
       <div className="flex w-full max-w-[440px] flex-col gap-3 rounded-lg border border-border bg-surface p-4">
-        {status === "loading" && <p className="text-sm text-muted-foreground">Loading preview checkout…</p>}
-        {status === "error" && <p className="text-sm text-danger">Could not load the preview checkout session.</p>}
+        {status === "loading" && (
+          <p className="text-sm text-muted-foreground">
+            {environment === "live" ? "Creating a live checkout session…" : "Loading preview checkout…"}
+          </p>
+        )}
+        {status === "error" && (
+          <p className="text-sm text-danger">
+            {environment === "live"
+              ? `Could not create a live checkout session: ${errorDetail}`
+              : "Could not load the preview checkout session."}
+          </p>
+        )}
 
         {!hasAnyEnabled ? (
           <p className="text-sm text-muted-foreground">
@@ -198,7 +327,9 @@ export function CheckoutPreview() {
               return (
                 <div key={method.id} className="flex flex-col gap-3">
                   <p className="text-xs text-muted-foreground">
-                    Card — sandbox mode. Use any 16-digit number that passes a Luhn check.
+                    {environment === "live"
+                      ? "Card — Live mode. Submits to the real checkout session created above."
+                      : "Card — sandbox mode. Use any 16-digit number that passes a Luhn check."}
                   </p>
                   <div id="checkout-preview-mount" ref={containerRef} />
 
@@ -216,7 +347,11 @@ export function CheckoutPreview() {
                   </button>
 
                   {paymentStatus === "succeeded" && (
-                    <p className="text-xs text-success">Payment succeeded against the mock PSP driver.</p>
+                    <p className="text-xs text-success">
+                      {environment === "live"
+                        ? "Payment succeeded against the real backend."
+                        : "Payment succeeded against the mock PSP driver."}
+                    </p>
                   )}
                   {paymentStatus === "error" && <p className="text-xs text-danger">{errorMessage}</p>}
                 </div>
@@ -225,12 +360,16 @@ export function CheckoutPreview() {
 
             if (method.type === "paypal" || method.type === "apple_pay" || method.type === "google_pay") {
               return (
-                <WalletButton
-                  key={method.id}
-                  method={method}
-                  status={walletStatus[method.type] ?? "idle"}
-                  onClick={() => simulateWalletPay(method.type)}
-                />
+                <div key={method.id} className="flex flex-col gap-1">
+                  <WalletButton
+                    method={method}
+                    status={walletStatus[method.type] ?? "idle"}
+                    onClick={() => handleWalletClick(method.type)}
+                  />
+                  {walletStatus[method.type] === "error" && walletErrors[method.type] && (
+                    <p className="text-xs text-danger">{walletErrors[method.type]}</p>
+                  )}
+                </div>
               );
             }
 
@@ -240,9 +379,9 @@ export function CheckoutPreview() {
       </div>
 
       <p className="max-w-[440px] text-center text-[11px] leading-relaxed text-muted-foreground">
-        PayPal/Apple Pay/Google Pay buttons here simulate a tap-to-pay flow client-side — the
-        SDK&apos;s mock driver has no wallet support yet, so these aren&apos;t real SDK-mounted elements
-        like Card is.
+        {environment === "live"
+          ? "PayPal/Apple Pay/Google Pay buttons call the real backend with a synthetic paymentMethodRef — this demo has no real wallet JS SDK to tokenize a card, but the confirm call itself is genuine."
+          : "PayPal/Apple Pay/Google Pay buttons here simulate a tap-to-pay flow client-side — the SDK's mock driver has no wallet support yet, so these aren't real SDK-mounted elements like Card is."}
       </p>
     </div>
   );

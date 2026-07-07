@@ -18,6 +18,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LogoMark } from "@/components/brand/logo-mark";
+import { EnvironmentToggle } from "@/components/layout/environment-toggle";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -66,6 +67,11 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      <div className="flex items-center justify-between gap-2 border-t border-border px-5 py-3">
+        <span className="text-xs font-semibold text-foreground">Progress Partners</span>
+        <EnvironmentToggle />
+      </div>
 
       <div className="flex items-center justify-between gap-2 border-t border-border px-5 py-4 text-xs text-muted-foreground">
         <span className="flex items-center gap-2">
