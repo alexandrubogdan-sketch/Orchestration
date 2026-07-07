@@ -33,7 +33,7 @@ export default function IntegrationsDocsPage() {
           </code>{" "}
           defines exactly which fields the Connect dialog asks for, per processor:
         </p>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Card>
             <CardHeader>
               <CardTitle>Stripe</CardTitle>
@@ -53,6 +53,17 @@ export default function IntegrationsDocsPage() {
               <FieldRow label="Secret key" placeholder="api_sk_..." secret env="SOLIDGATE_SECRET_KEY" />
               <FieldRow label="Webhook public key" placeholder="wh_pk_..." secret={false} env="SOLIDGATE_WEBHOOK_PUBLIC_KEY" />
               <FieldRow label="Webhook secret key" placeholder="wh_sk_..." secret env="SOLIDGATE_WEBHOOK_SECRET_KEY" />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>PayPal</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <FieldRow label="Account ID" placeholder="merchant@example.com" secret={false} env="PAYPAL_ACCOUNT_ID" />
+              <FieldRow label="Client ID" placeholder="AeA1QIZXiflr9..." secret={false} env="PAYPAL_CLIENT_ID" />
+              <FieldRow label="Client secret" placeholder="EGnHDxD_qRPdaLdZz8i..." secret env="PAYPAL_CLIENT_SECRET" />
+              <FieldRow label="Webhook ID" placeholder="8PT597110X687430LKGECATA" secret={false} env="PAYPAL_WEBHOOK_ID" />
             </CardContent>
           </Card>
         </div>
@@ -108,33 +119,44 @@ export default function IntegrationsDocsPage() {
       </section>
 
       <section className="mb-10">
-        <h2 id="why-stripe-and-solidgate" className="mb-3 text-lg font-semibold text-foreground">Why Stripe and Solidgate specifically</h2>
+        <h2 id="why-stripe-and-solidgate" className="mb-3 text-lg font-semibold text-foreground">Why Stripe, Solidgate, and PayPal specifically</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          These are the only two PSPs the backend has actually implemented adapters for (see{" "}
+          These are the three PSPs the backend has actually implemented adapters for (see{" "}
           <a href="/docs/adapters" className="font-medium text-accent-foreground underline underline-offset-2">
             PSP adapters &amp; declines
           </a>
           ). <code className="font-mono">ProcessorId</code> in this frontend is intentionally restricted to{" "}
-          <code className="font-mono">[&quot;stripe&quot;, &quot;solidgate&quot;]</code> to match, even though PayNext&apos;s
-          own reference model (which this UI is otherwise modeled on) supports Braintree, PayPal, and
+          <code className="font-mono">[&quot;stripe&quot;, &quot;solidgate&quot;, &quot;paypal&quot;]</code> to match, even though
+          PayNext&apos;s own reference model (which this UI is otherwise modeled on) supports Braintree and
           Unlimit too.
         </p>
       </section>
 
       <section>
         <h2 id="request-signing" className="mb-3 text-lg font-semibold text-foreground">Request signing differs by processor</h2>
-        <CodeBlock label="Stripe vs. Solidgate webhook verification">{`Stripe:
+        <CodeBlock label="Webhook verification, all three processors">{`Stripe:
   header: stripe-signature
-  scheme: HMAC-SHA256, Stripe SDK's webhooks.constructEvent()
+  scheme: local HMAC-SHA256, Stripe SDK's webhooks.constructEvent()
 
 Solidgate:
   headers: merchant, signature, solidgate-event-id, solidgate-event-created-at
-  scheme: base64( hex( HMAC-SHA512(secretKey, publicKey + jsonBody + publicKey) ) )
-          -- note: base64 is applied to the hex STRING, not the raw digest bytes`}</CodeBlock>
+  scheme: local base64( hex( HMAC-SHA512(secretKey, publicKey + jsonBody + publicKey) ) )
+          -- note: base64 is applied to the hex STRING, not the raw digest bytes
+
+PayPal:
+  no local verification algorithm documented for its certificate-based scheme
+  scheme: outbound call to POST /v1/notifications/verify-webhook-signature
+          (requires PAYPAL_WEBHOOK_ID per psp_account)`}</CodeBlock>
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
           Solidgate also requires <code className="font-mono">customerEmail</code> on every charge (Stripe
           does not), and uses its own <code className="font-mono">order_id</code> as the orchestrator&apos;s
-          payment UUID directly rather than a separate metadata round-trip.
+          payment UUID directly rather than a separate metadata round-trip. PayPal encodes amounts as
+          decimal strings rather than integer minor units — see{" "}
+          <a href="/docs/adapters#paypal-adapter" className="font-medium text-accent-foreground underline underline-offset-2">
+            PSP adapters &amp; declines &rsaquo; PayPal
+          </a>{" "}
+          for the full list of ways its adapter differs structurally from Stripe/Solidgate, not just in
+          webhook verification.
         </p>
       </section>
     </div>

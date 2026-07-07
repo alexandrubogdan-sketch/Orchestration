@@ -1,0 +1,19 @@
+{
+  "id": "evt_1PQdisputecreated000",
+  "object": "event",
+  "type": "charge.dispute.created",
+  "api_version": "2026-06-24.dahlia",
+  "created": 1735776000,
+  "data": {
+    "object": {
+      "id": "dp_1PQdisputecreated",
+      "object": "dispute",
+      "amount": 1999,
+      "currency": "usd",
+      "charge": "ch_1PQdisputed",
+      "payment_intent": "pi_1PQdisputed",
+      "reason": "fraudulent",
+      "status": "warning_needs_response"
+    }
+  }
+}

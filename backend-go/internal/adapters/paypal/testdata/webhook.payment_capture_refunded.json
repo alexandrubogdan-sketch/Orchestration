@@ -1,0 +1,36 @@
+{
+  "id": "WH-3TY45892JD0334543-9NM41143T71283666",
+  "event_version": "1.0",
+  "create_time": "2026-07-07T19:00:00.000Z",
+  "resource_type": "refund",
+  "event_type": "PAYMENT.CAPTURE.REFUNDED",
+  "summary": "A $ 50.00 USD capture payment was refunded",
+  "resource": {
+    "id": "1JU08902RG9998716",
+    "status": "COMPLETED",
+    "amount": {
+      "currency_code": "USD",
+      "value": "50.00"
+    },
+    "custom_id": "pay_int_abc123",
+    "links": [
+      {
+        "href": "https://api-m.sandbox.paypal.com/v2/payments/refunds/1JU08902RG9998716",
+        "rel": "self",
+        "method": "GET"
+      },
+      {
+        "href": "https://api-m.sandbox.paypal.com/v2/checkout/orders/5O190127TN364715T",
+        "rel": "up",
+        "method": "GET"
+      }
+    ]
+  },
+  "links": [
+    {
+      "href": "https://api-m.sandbox.paypal.com/v1/notifications/webhooks-events/WH-3TY45892JD0334543-9NM41143T71283666",
+      "rel": "self",
+      "method": "GET"
+    }
+  ]
+}

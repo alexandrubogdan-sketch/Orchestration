@@ -38,6 +38,8 @@ export interface Payment {
   id: string;
   merchantEntity: "US-LLC" | "EU-BV";
   product: string;
+  /** FK into Customer — see lib/mock-data.ts's getMockCustomerById. */
+  customerId: string;
   customerEmail: string;
   amountMinorUnits: number;
   currency: string;
@@ -47,6 +49,51 @@ export interface Payment {
   declineCode?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+/* ------------------------------------------------------------------ *
+ * Customers — modeled on the backend's actual schema
+ * (payment-orchestrator/db/migrations/*_core-schema.cjs), NOT on
+ * PayNext's reference model like Workflows/Plans/Integrations above,
+ * since the backend's customers/payment_methods tables are already the
+ * real spec here: `customers` (id, merchant_entity_id, external_ref,
+ * email) and `payment_methods` (customer_id, psp_account_id, type,
+ * card_brand, card_last4, card_exp_month/year, is_active) — token refs
+ * and display-safe card metadata only, never a PAN/CVV
+ * (Non-negotiable #8). "Location" surfaces the payment's
+ * issuer_country (from the card network, i.e. the BIN) rather than a
+ * postal address, since that's the only geo signal the real schema
+ * captures anywhere near a customer — see docs/adr's workflow
+ * conditions (`issuer_country`, `customer_country`) for the same
+ * distinction.
+ * ------------------------------------------------------------------ */
+
+export const PAYMENT_METHOD_KINDS = ["card", "wallet", "apm", "bank_transfer"] as const;
+export type PaymentMethodKind = (typeof PAYMENT_METHOD_KINDS)[number];
+
+export interface CustomerPaymentMethod {
+  id: string;
+  type: PaymentMethodKind;
+  pspAccount: string;
+  isActive: boolean;
+  /** card-type only — display-safe metadata PSPs return alongside the token. */
+  cardBrand?: string;
+  cardLast4?: string;
+  cardExpMonth?: number;
+  cardExpYear?: number;
+}
+
+export interface Customer {
+  id: string;
+  merchantEntity: "US-LLC" | "EU-BV";
+  email: string;
+  /** customers.external_ref — the product's own id for this customer, if supplied. */
+  externalRef?: string;
+  /** Derived from the customer's payments' issuer_country/customer_country — see doc comment above. */
+  country: string;
+  city?: string;
+  createdAt: string;
+  paymentMethods: CustomerPaymentMethod[];
 }
 
 /** Stable timeline event names — docs/design.md §1.2 / SPEC.md T4.3. */
@@ -181,15 +228,16 @@ export const WORKFLOW_ACTION_LABELS: Record<WorkflowActionType, string> = {
   delay: "Delay",
 };
 
-/** This product's two built PSP adapters (backend/src/adapters) — the
+/** This product's three built PSP adapters (backend/src/adapters) — the
  *  processor choice for an Authorize Payment action. PayNext itself
  *  supports Stripe/Braintree/PayPal/Unlimit; scoped down to what this
  *  backend actually implements. */
-export const PROCESSORS = ["stripe", "solidgate"] as const;
+export const PROCESSORS = ["stripe", "solidgate", "paypal"] as const;
 export type ProcessorId = (typeof PROCESSORS)[number];
 export const PROCESSOR_LABELS: Record<ProcessorId, string> = {
   stripe: "Stripe",
   solidgate: "Solidgate",
+  paypal: "PayPal",
 };
 
 /** docs.paynext.com/guides/payments/3d-secure — "3DS Modes" table. */
@@ -240,7 +288,85 @@ export interface Workflow {
 }
 
 /* ------------------------------------------------------------------ *
- * Plans — modeled on docs.paynext.com/guides/platform/plans.
+ * Retries / dunning policy — mirrors the real Go backend's
+ * `retry_settings` table (payment-orchestrator-go/db/migrations/
+ * 1735777300000_retry-settings.up.sql) one-for-one: an ordered
+ * "wait N hours, then retry" ladder, a max-attempts-per-payment cap,
+ * and a minimum spacing (seconds) between attempts on the same payment.
+ * Surfaced under Workflows (see app/workflows/retries/page.tsx) since
+ * dunning IS a workflow — a linear sequence of wait/retry steps run
+ * against a subscription's failed renewal, exactly like a
+ * WorkflowNode chain is a linear sequence of condition/action steps
+ * run against a payment.
+ * ------------------------------------------------------------------ */
+
+/** One rung of the dunning ladder: "wait `waitHours` hours after the
+ *  previous attempt, then retry." `id` is a client-only key for the
+ *  editable list (add/remove/reorder) — never sent to the backend,
+ *  which only ever sees the plain `dunningLadderHours: number[]` array
+ *  (see RetryPolicy's own doc comment and retry-settings-store.ts's
+ *  toDunningLadderHours). */
+export interface DunningLadderStep {
+  id: string;
+  waitHours: number;
+}
+
+/** Mirrors the real backend's retry_settings row shape exactly
+ *  (payment-orchestrator-go/internal/api/retry_settings.go's
+ *  RetrySettingsDTO): `dunningLadderHours`/`maxAttemptsPerPayment`/
+ *  `minSpacingSeconds`, camelCase, same field names. `ladder` here is
+ *  the client-side editable representation (DunningLadderStep[], with
+ *  stable ids for list operations) rather than a plain number[] —
+ *  retry-settings-store.ts's toDunningLadderHours/fromDunningLadderHours
+ *  convert between the two at the store boundary, which is exactly
+ *  where a real `PUT /v1/retry-settings` call would also need to
+ *  serialize/deserialize, so this shape choice costs nothing extra when
+ *  that wiring happens later. */
+export interface RetryPolicy {
+  ladder: DunningLadderStep[];
+  maxAttemptsPerPayment: number;
+  minSpacingSeconds: number;
+}
+
+/** The real backend's hardcoded fallback defaults
+ *  (internal/routing/retrypolicy.go's DefaultRetryPolicy +
+ *  internal/subscriptions/dunning.go's DunningLadderHours) — used both
+ *  as this store's initial state and as the "Reset to defaults" action's
+ *  target, so this frontend's default view matches what a merchant who
+ *  has never configured retry settings would see from the real API's
+ *  GET /v1/retry-settings (which falls back to these exact same three
+ *  numbers when no row exists yet). */
+export const DEFAULT_DUNNING_LADDER_HOURS = [24, 72, 168] as const;
+export const DEFAULT_MAX_ATTEMPTS_PER_PAYMENT = 3;
+export const DEFAULT_MIN_SPACING_SECONDS = 2;
+
+export const RETRY_ATTEMPT_OUTCOMES = ["succeeded", "declined", "failed"] as const;
+export type RetryAttemptOutcome = (typeof RETRY_ATTEMPT_OUTCOMES)[number];
+
+/** One row in the "Recent retry attempts" mock table — a retry-ladder
+ *  rung actually fired against a real (mock) payment. Not persisted
+ *  anywhere; regenerated deterministically by
+ *  lib/mock-data.ts#getMockRetryAttempts the same seeded way every
+ *  other mock table in this app is (see that file's own top doc
+ *  comment on why each generator seeds its own PRNG). */
+export interface RetryAttempt {
+  id: string;
+  paymentId: string;
+  attemptNumber: number;
+  pspAccount: string;
+  outcome: RetryAttemptOutcome;
+  occurredAt: string;
+}
+
+/* ------------------------------------------------------------------ *
+ * Plans — modeled on this vendor's own plans catalog UX (a recurring
+ * vs. one-off type flag, a base price plus per-country/currency
+ * override rules, a mirrored trial price/interval/rules block, and a
+ * tax-collection toggle), adapted to this frontend's mock-data-only
+ * architecture — see PriceOverrideRule's doc comment for how `rules`
+ * relates to the pre-existing `prices`/`PriceRow` shape from the
+ * original country-list pricing rows (still used as-is for the base
+ * price + trial price editors; kept rather than replaced).
  * ------------------------------------------------------------------ */
 
 export const BILLING_INTERVAL_UNITS = ["days", "months", "years"] as const;
@@ -248,10 +374,9 @@ export type BillingIntervalUnit = (typeof BILLING_INTERVAL_UNITS)[number];
 
 export const COMMON_CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY"] as const;
 
-/** "All countries" is PayNext's default-price row; every other row is a
- *  country-specific override (docs.paynext.com/guides/platform/plans
- *  §Localized Pricing). Kept as ISO-3166 alpha-2 codes, free-text so any
- *  country can be entered, with "ALL" reserved for the default row. */
+/** "All countries" is the default-price row; every other row is a
+ *  country-specific override. Kept as ISO-3166 alpha-2 codes, free-text so
+ *  any country can be entered, with "ALL" reserved for the default row. */
 export const DEFAULT_PRICE_COUNTRY = "ALL";
 
 export interface PriceRow {
@@ -262,21 +387,60 @@ export interface PriceRow {
   country: string;
 }
 
+/** Plan type — a recurring subscription (has a billing interval) vs. a
+ *  single one-off charge (no interval, no trial). */
+export const PLAN_TYPES = ["recurring", "one-off"] as const;
+export type PlanType = (typeof PLAN_TYPES)[number];
+
+/** Tax collection mode for a plan: "global" defers to the account-level
+ *  default, "enabled"/"disabled" force tax collection on or off for this
+ *  plan specifically. */
+export const TAX_COLLECTION_MODES = ["global", "enabled", "disabled"] as const;
+export type TaxCollectionMode = (typeof TAX_COLLECTION_MODES)[number];
+export const TAX_COLLECTION_LABELS: Record<TaxCollectionMode, string> = {
+  global: "Global",
+  enabled: "Enabled",
+  disabled: "Disabled",
+};
+
+/** Per-country/currency price override rule — the richer analogue of a
+ *  single PriceRow, but scoped to a *list* of countries per rule instead
+ *  of one row per country (so "these 5 countries all pay EUR 9.99" is one
+ *  rule, not five rows). This is additive to `prices`/`PriceRow` above:
+ *  `prices` remains the simple one-row-per-country editor already used
+ *  for the plan's base price and trial price; `rules` is the new,
+ *  multi-country-per-rule override list requested for this feature. */
+export interface PriceOverrideRule {
+  id: string;
+  currency: string;
+  /** ISO-3166 alpha-2 codes this rule applies to. */
+  countries: string[];
+  amountMinorUnits: number;
+}
+
 export interface TrialConfig {
   enabled: boolean;
   intervalUnit: BillingIntervalUnit;
   intervalCount: number;
   prices: PriceRow[];
+  /** Per-country/currency overrides for the trial price, mirroring the
+   *  plan-level `rules` below. */
+  rules: PriceOverrideRule[];
 }
 
 export interface Plan {
   id: string;
   name: string;
+  type: PlanType;
   billingIntervalUnit: BillingIntervalUnit;
   billingIntervalCount: number;
   prices: PriceRow[];
+  /** Per-country/currency overrides on top of `prices`' default row. */
+  rules: PriceOverrideRule[];
   trial: TrialConfig;
+  taxCollection: TaxCollectionMode;
   createdAt: string;
+  updatedAt: string;
 }
 
 /* ------------------------------------------------------------------ *
@@ -316,6 +480,12 @@ export const PROCESSOR_CREDENTIAL_FIELDS: Record<ProcessorId, CredentialFieldSpe
     { key: "webhookPublicKey", label: "Webhook public key", placeholder: "wh_pk_...", secret: false }, // SOLIDGATE_WEBHOOK_PUBLIC_KEY
     { key: "webhookSecretKey", label: "Webhook secret key", placeholder: "wh_sk_...", secret: true }, // SOLIDGATE_WEBHOOK_SECRET_KEY
   ],
+  paypal: [
+    { key: "accountId", label: "Account ID", placeholder: "merchant@example.com or merchant ID", secret: false },
+    { key: "clientId", label: "Client ID", placeholder: "AeA1QIZXiflr9...", secret: false },
+    { key: "clientSecret", label: "Client Secret", placeholder: "EGnHDxD_qRPdaLdZz8i...", secret: true },
+    { key: "webhookId", label: "Webhook ID", placeholder: "8PT597110X687430LKGECATA", secret: false },
+  ],
 };
 
 export interface Integration {
@@ -333,4 +503,44 @@ export interface Integration {
    *  surfaced so the VAMP/Mastercard risk-monitoring dashboard can offer a
    *  per-descriptor filter. */
   descriptors?: string[];
+}
+
+/* ------------------------------------------------------------------ *
+ * Team — dashboard-user roles and pending invites. No live equivalent
+ * yet on either side (this frontend has no real auth provider wired
+ * up — see frontend README known gaps): the real client codebase uses
+ * Clerk's built-in organization/members UI for this instead of a
+ * bespoke module, so there's no PayNext-style doc page or backend
+ * table to mirror here the way Plans/Integrations/Workflows do. Kept
+ * deliberately simple — three roles, no granular permission matrix —
+ * matching this dashboard's existing scope (mock data only, no fetch
+ * calls, no Clerk integration).
+ * ------------------------------------------------------------------ */
+
+export const TEAM_ROLES = ["admin", "member", "support"] as const;
+export type TeamRole = (typeof TEAM_ROLES)[number];
+
+export const TEAM_ROLE_LABELS: Record<TeamRole, string> = {
+  admin: "Admin",
+  member: "Member",
+  support: "Support",
+};
+
+export interface TeamMember {
+  id: string;
+  name: string;
+  email: string;
+  role: TeamRole;
+  joinedAt: string;
+}
+
+export type TeamInviteStatus = "pending" | "expired";
+
+export interface TeamInvite {
+  id: string;
+  email: string;
+  role: TeamRole;
+  invitedAt: string;
+  invitedBy: string;
+  status: TeamInviteStatus;
 }

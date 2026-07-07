@@ -1,0 +1,17 @@
+{
+  "id": "txn_1CAPTUREBT",
+  "object": "balance_transaction",
+  "amount": 2000,
+  "currency": "usd",
+  "fee": 88,
+  "net": 1912,
+  "type": "charge",
+  "created": 1750000000,
+  "source": {
+    "id": "ch_1CAPTURECHARGE",
+    "object": "charge",
+    "amount": 2000,
+    "currency": "usd",
+    "payment_intent": "pi_1CAPTUREINTENT"
+  }
+}

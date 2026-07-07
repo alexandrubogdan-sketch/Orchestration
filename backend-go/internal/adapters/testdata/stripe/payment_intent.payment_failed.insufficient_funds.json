@@ -1,0 +1,24 @@
+{
+  "id": "evt_1PQfailedinsufficient000",
+  "object": "event",
+  "type": "payment_intent.payment_failed",
+  "api_version": "2026-06-24.dahlia",
+  "created": 1735776000,
+  "data": {
+    "object": {
+      "id": "pi_1PQfailedinsufficient",
+      "object": "payment_intent",
+      "amount": 4000,
+      "currency": "usd",
+      "status": "requires_payment_method",
+      "capture_method": "automatic",
+      "last_payment_error": {
+        "type": "card_error",
+        "code": "card_declined",
+        "decline_code": "insufficient_funds",
+        "message": "Your card has insufficient funds."
+      },
+      "metadata": { "payment_id": "pay_01H0000000000000000000003" }
+    }
+  }
+}

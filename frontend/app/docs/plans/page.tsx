@@ -15,16 +15,21 @@ export default function PlansDocsPage() {
         <h2 id="shape" className="mb-3 text-lg font-semibold text-foreground">Shape</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
           A <code className="font-mono">Plan</code> (<code className="font-mono">lib/types.ts</code>) is a
-          billing interval plus a flat list of price rows, plus an optional trial:
+          recurring-vs-one-off type flag, a base price row list, a multi-country override-rule list, a
+          mirrored trial block, and a tax-collection mode:
         </p>
         <CodeBlock label="Plan">{`interface Plan {
   id: string;
   name: string;
+  type: "recurring" | "one-off";
   billingIntervalUnit: "days" | "months" | "years";
   billingIntervalCount: number;
-  prices: PriceRow[];
+  prices: PriceRow[];              // base price, one row per country + one "ALL" default
+  rules: PriceOverrideRule[];      // richer override list, one rule per group of countries
   trial: TrialConfig;
+  taxCollection: "global" | "enabled" | "disabled";
   createdAt: string;
+  updatedAt: string;
 }
 
 interface PriceRow {
@@ -34,30 +39,46 @@ interface PriceRow {
   country: string;         // ISO-3166 alpha-2, or "ALL"
 }
 
+interface PriceOverrideRule {
+  id: string;
+  currency: string;
+  countries: string[];     // ISO-3166 alpha-2 codes this rule applies to
+  amountMinorUnits: number;
+}
+
 interface TrialConfig {
   enabled: boolean;
   intervalUnit: "days" | "months" | "years";
   intervalCount: number;
   prices: PriceRow[];
+  rules: PriceOverrideRule[];      // mirrors the plan-level rules, for trial pricing
 }`}</CodeBlock>
+        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+          A <code className="font-mono">one-off</code> plan is a single charge with no billing interval and
+          no trial — <code className="font-mono">type</code> is the only field that changes what the rest of
+          the shape means, not a separate variant type.
+        </p>
       </section>
 
       <section className="mb-10">
-        <h2 id="localized-pricing-rows" className="mb-3 text-lg font-semibold text-foreground">Localized pricing rows</h2>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          There is no separate localization table — a plan&apos;s <code className="font-mono">prices</code> array
-          is just filtered by <code className="font-mono">country</code> at read time. Exactly one row uses
-          the sentinel <code className="font-mono">country: &quot;ALL&quot;</code> (<code className="font-mono">
+        <h2 id="localized-pricing-rows" className="mb-3 text-lg font-semibold text-foreground">Two ways to override price by country</h2>
+        <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
+          <code className="font-mono">prices</code> is the original one-row-per-country editor, kept as-is
+          for the base price and trial price: exactly one row uses the sentinel{" "}
+          <code className="font-mono">country: &quot;ALL&quot;</code> (<code className="font-mono">
             DEFAULT_PRICE_COUNTRY
           </code>
-          ) as the default/fallback price; every other row is a country-specific override, keyed by a
-          free-text ISO-3166 alpha-2 code. For example, the seeded <code className="font-mono">
-            plan-pro-monthly
-          </code>{" "}
-          plan has a default USD 2999 ($29.99) row plus a CAD 3399 override for <code className="font-mono">
-            CA
-          </code>{" "}
-          and a GBP 2499 override for <code className="font-mono">GB</code>.
+          ) as the default/fallback price, and every other row is a single country-specific override.
+        </p>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          <code className="font-mono">rules</code> is additive, richer, and newer: one{" "}
+          <code className="font-mono">PriceOverrideRule</code> applies to a <em>list</em> of countries at
+          once — &quot;these 5 countries all pay EUR 9.99&quot; is one rule, not five{" "}
+          <code className="font-mono">PriceRow</code> entries. The two lists are not mutually exclusive; a
+          plan can have both a per-country <code className="font-mono">prices</code> override and a
+          multi-country <code className="font-mono">rules</code> override at once — which one a given
+          request should resolve to first is left to the reader, since neither the frontend nor the backend
+          currently reads either list for anything but display.
         </p>
       </section>
 
@@ -66,17 +87,24 @@ interface TrialConfig {
         <p className="text-sm leading-relaxed text-muted-foreground">
           <code className="font-mono">trial</code> is a fully independent structure — its own{" "}
           <code className="font-mono">intervalUnit</code>/<code className="font-mono">intervalCount</code>{" "}
-          (unrelated to the plan&apos;s own billing interval) and its own <code className="font-mono">
-            prices: PriceRow[]
+          (unrelated to the plan&apos;s own billing interval) and its own{" "}
+          <code className="font-mono">prices</code>/<code className="font-mono">rules</code> pair, mirroring
+          the plan-level shape exactly, so a trial can carry the same localized, multi-currency,
+          multi-country pricing the plan itself can. <code className="font-mono">trial.enabled</code> gates
+          whether trial pricing applies at all.
+        </p>
+      </section>
+
+      <section className="mb-10">
+        <h2 id="tax-collection" className="mb-3 text-lg font-semibold text-foreground">Tax collection mode</h2>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          <code className="font-mono">taxCollection</code> is one of three values: <code className="font-mono">
+            global
           </code>{" "}
-          array, so a trial can itself carry localized, multi-currency pricing. <code className="font-mono">
-            trial.enabled
-          </code>{" "}
-          gates whether trial pricing applies at all. The seed data has two 7/14-day trials priced at
-          $0 USD for <code className="font-mono">ALL</code>, and one plan (<code className="font-mono">
-            plan-pro-annual
-          </code>
-          ) with trials disabled entirely.
+          defers to an account-level default (not modeled anywhere in this frontend — there is no
+          account-settings page for it), while <code className="font-mono">enabled</code>/{" "}
+          <code className="font-mono">disabled</code> force tax collection on or off for this plan
+          specifically, overriding whatever the (unmodeled) global default would be.
         </p>
       </section>
 

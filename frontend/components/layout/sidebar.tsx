@@ -5,12 +5,14 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   CreditCard,
+  Users,
   Repeat,
   Plug,
   Workflow,
   Building2,
   ShieldAlert,
   BookOpen,
+  Users2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -19,8 +21,10 @@ import { LogoMark } from "@/components/brand/logo-mark";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/payments", label: "Payments", icon: CreditCard },
+  { href: "/customers", label: "Customers", icon: Users },
   { href: "/plans", label: "Plans", icon: Repeat },
   { href: "/integrations", label: "Integrations", icon: Plug },
+  { href: "/team", label: "Team", icon: Users2 },
   { href: "/workflows", label: "Workflows", icon: Workflow },
   { href: "/risk-monitoring", label: "Risk Monitoring", icon: ShieldAlert },
   { href: "/docs", label: "Docs", icon: BookOpen },

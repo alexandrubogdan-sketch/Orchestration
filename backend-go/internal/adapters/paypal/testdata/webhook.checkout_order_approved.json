@@ -1,0 +1,41 @@
+{
+  "id": "WH-1AB23456CD7890123-4EF5678GH9012345",
+  "event_version": "1.0",
+  "create_time": "2026-07-07T18:20:00.000Z",
+  "resource_type": "checkout-order",
+  "event_type": "CHECKOUT.ORDER.APPROVED",
+  "summary": "An order has been approved by buyer",
+  "resource": {
+    "id": "5O190127TN364715T",
+    "status": "APPROVED",
+    "intent": "CAPTURE",
+    "purchase_units": [
+      {
+        "amount": {
+          "currency_code": "USD",
+          "value": "100.00"
+        },
+        "custom_id": "pay_int_abc123"
+      }
+    ],
+    "links": [
+      {
+        "href": "https://api-m.sandbox.paypal.com/v2/checkout/orders/5O190127TN364715T",
+        "rel": "self",
+        "method": "GET"
+      },
+      {
+        "href": "https://api-m.sandbox.paypal.com/v2/checkout/orders/5O190127TN364715T/capture",
+        "rel": "capture",
+        "method": "POST"
+      }
+    ]
+  },
+  "links": [
+    {
+      "href": "https://api-m.sandbox.paypal.com/v1/notifications/webhooks-events/WH-1AB23456CD7890123-4EF5678GH9012345",
+      "rel": "self",
+      "method": "GET"
+    }
+  ]
+}

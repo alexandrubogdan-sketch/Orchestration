@@ -1,0 +1,15 @@
+{
+  "id": "txn_1ADJUSTMENT",
+  "object": "balance_transaction",
+  "amount": -100,
+  "currency": "usd",
+  "fee": 0,
+  "net": -100,
+  "type": "adjustment",
+  "created": 1750010800,
+  "source": {
+    "id": "ch_1SOMECHARGE",
+    "object": "charge",
+    "payment_intent": "pi_1SOMEINTENT"
+  }
+}

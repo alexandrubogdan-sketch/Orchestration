@@ -22,7 +22,9 @@ export const DOCS_NAV: DocsNavGroup[] = [
     title: "Core payments",
     items: [
       { href: "/docs/payments", label: "Payments" },
+      { href: "/docs/customers", label: "Customers" },
       { href: "/docs/adapters", label: "PSP adapters & declines" },
+      { href: "/docs/checkout-sdk", label: "Checkout SDK" },
       { href: "/docs/reconciliation", label: "Reconciliation & ledger" },
     ],
   },
@@ -30,8 +32,10 @@ export const DOCS_NAV: DocsNavGroup[] = [
     title: "Configuration",
     items: [
       { href: "/docs/workflows", label: "Workflows" },
+      { href: "/docs/retries", label: "Retries & dunning" },
       { href: "/docs/plans", label: "Plans & billing" },
       { href: "/docs/integrations", label: "Integrations" },
+      { href: "/docs/team", label: "Team & invites" },
     ],
   },
   {

@@ -1,0 +1,233 @@
+name: CI
+
+# Go port of the TypeScript project's .github/workflows/ci.yml (T0.7).
+# Same three-job shape (lint/vet, unit+contract tests, integration tests
+# against real Postgres/Redis service containers) translated to Go
+# idioms:
+#   - npm run format:check / lint / typecheck  ->  gofmt -l / go vet /
+#     golangci-lint run
+#   - npm run test:unit + test:contract          ->  go test (short mode)
+#     across every package EXCEPT the ones whose tests require a live
+#     Postgres/Redis
+#   - npm run migrate:up + test:integration      ->  golang-migrate CLI
+#     against the postgres service container, then go test (full suite)
+#
+# IMPORTANT — read MIGRATION_NOTES.md and PARITY_REPORT.md before
+# trusting a green run of this workflow: this file has never actually
+# been executed (no Go toolchain was available in the sandbox this
+# repository was written in — see MIGRATION_NOTES.md's standing
+# caveat). It is written to the same structural shape as the
+# TS project's own working, previously-green CI file, and every command
+# it runs is a well-established, stable Go toolchain invocation — but
+# "written correctly by hand" is not "confirmed green," and this
+# workflow's own first real run (on a real GitHub Actions runner, with
+# real network access to proxy.golang.org) IS that confirmation. Fix
+# whatever it finds; do not assume this file itself is bug-free just
+# because it looks like ordinary, idiomatic CI YAML.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  GO_VERSION: '1.22'
+
+jobs:
+  lint-and-vet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # gofmt -l lists any file that is NOT already correctly formatted;
+      # a non-empty list must fail the build, exactly as npm run
+      # format:check does for Prettier. `gofmt -l .` prints filenames on
+      # stdout with no non-zero exit code of its own, so failure is
+      # detected by checking for non-empty output, not by exit status.
+      - name: gofmt (format check)
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not gofmt-formatted:"
+            echo "$unformatted"
+            echo ""
+            echo "Run 'gofmt -w .' locally and commit the result."
+            exit 1
+          fi
+
+      # go vet is the closest built-in equivalent to the TS job's
+      # typecheck step — it catches a class of bugs (suspicious
+      # printf-style format verbs, unreachable code, lock-copying,
+      # struct-tag mistakes) a straight `go build` alone would not.
+      - name: go vet
+        run: go vet ./...
+
+      # golangci-lint is this project's closest analogue to `npm run
+      # lint` (ESLint) — a meta-linter running many individual linters
+      # (unused, errcheck, staticcheck, etc.) in one pass. If this
+      # repository has no .golangci.yml yet, golangci-lint runs its own
+      # sane default linter set; add a .golangci.yml alongside this file
+      # to tune exactly which linters run once this pipeline is
+      # confirmed green for the first time. Pinned to a specific action
+      # version (not @master) so this job's behavior does not silently
+      # drift on a later PR.
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+  build:
+    runs-on: ubuntu-latest
+    needs: lint-and-vet
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # `go build ./...` is the single most important command in this
+      # entire file, per this project's own standing caveat: it is the
+      # first time ANY of this code will have been compiled by a real
+      # Go toolchain. `go mod download` first so a transient network
+      # blip on a module fetch surfaces as its own clearly-named step
+      # rather than being folded into the build step's own output.
+      - name: go mod download
+        run: go mod download
+
+      - name: go build ./...
+        run: go build ./...
+
+  unit-and-contract-tests:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - run: go mod download
+
+      # Every package in this repository whose tests need a live
+      # Postgres/Redis is excluded here and picked up instead by the
+      # integration-tests job below, which provisions real service
+      # containers — mirroring the TS project's own test:unit vs.
+      # test:integration split (test:unit/test:contract never touch a
+      # real database; test:integration always does). As of this
+      # writing no package in this repo requires live infra for its
+      # _test.go files (every DB-touching function is tested against an
+      # in-memory fake — see MIGRATION_NOTES.md's per-phase "Tests"
+      # sections), so this and the integration job below currently run
+      # the identical `go test ./...` invocation; the split is kept as
+      # separate jobs anyway so a future phase that DOES add a
+      # real-Postgres-required test file has an obvious place to land
+      # it (this job's own comment is the natural place to add an
+      # exclusion) without having to first invent the job structure.
+      - name: go test ./... (race detector on)
+        run: go test -race -count=1 ./...
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: build
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: orchestrator
+          POSTGRES_PASSWORD: orchestrator
+          POSTGRES_DB: orchestrator
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U orchestrator -d orchestrator"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://orchestrator:orchestrator@localhost:5432/orchestrator?sslmode=disable
+      REDIS_URL: redis://localhost:6379
+      LOG_LEVEL: silent
+      API_PORT: '8080'
+      METRICS_PORT: '9090'
+      HATCHET_CLIENT_TOKEN: ci-placeholder-token
+      HATCHET_CLIENT_TLS_STRATEGY: none
+      STRIPE_MODE: sandbox
+      STRIPE_SECRET_KEY: sk_test_placeholder
+      STRIPE_PUBLISHABLE_KEY: pk_test_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_placeholder
+      STRIPE_API_VERSION: '2026-06-24.dahlia'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - run: go mod download
+
+      # golang-migrate's CLI (not the library this repo's own
+      # internal/migrations package embeds) applies db/migrations
+      # against the real postgres service container above — the actual
+      # live-database verification every phase of this port has flagged
+      # as outstanding (see MIGRATION_NOTES.md: "Live-database
+      # verification of the 11 migrations — still unverified" repeated
+      # across every phase). This is the first place in this whole
+      # project that claim gets tested for real.
+      - name: install golang-migrate CLI
+        run: |
+          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@v4.18.1
+
+      - name: migrate up
+        run: migrate -path db/migrations -database "$DATABASE_URL" up
+
+      # Full suite, including whatever this repo's own test files decide
+      # requires live infra now that real Postgres/Redis exist in this
+      # job. Also the first real execution of every SQL statement this
+      # project's MIGRATION_NOTES.md has flagged, phase after phase, as
+      # "verified by reading, not by running" — internal/statemachine,
+      # internal/webhooks, internal/ledger, internal/api's pgx-backed
+      # stores, and internal/subscriptions/internal/outbound/internal/worker
+      # all get their first real-database exercise here.
+      - name: go test ./... (full suite, real Postgres + Redis)
+        run: go test -count=1 ./...
+
+  vulncheck:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      # govulncheck is the closest Go-ecosystem equivalent to `npm audit`
+      # — the TS project's CI doesn't run npm audit as its own job
+      # either, but a payment-orchestration backend importing
+      # stripe-go/pgx/go-redis/the Hatchet SDK is exactly the kind of
+      # dependency surface worth scanning for known CVEs on every PR
+      # rather than only when someone remembers to check. Kept as its
+      # own non-blocking-by-default job (no `needs` from
+      # unit-and-contract-tests/integration-tests) so a new advisory
+      # landing against a transitive dependency doesn't block an
+      # unrelated PR from merging; promote this to a required check once
+      # the team has a documented process for triaging a finding here.
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...

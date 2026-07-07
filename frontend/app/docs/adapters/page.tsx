@@ -226,13 +226,70 @@ interface NormalizedDecline {
       </Callout>
 
       <section className="mt-10">
-        <h2 id="stripe-vs-solidgate" className="mb-3 text-lg font-semibold text-foreground">Stripe vs. Solidgate, side by side</h2>
+        <h2 id="paypal-adapter" className="mb-3 text-lg font-semibold text-foreground">PayPal — an Orders API v2 adapter, not a card processor</h2>
+        <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
+          The third adapter (<code className="font-mono">internal/adapters/paypal/</code>, Go-only — it
+          postdates the TypeScript backend) wraps PayPal&apos;s Orders API v2: create an order, capture it,
+          void/refund/get by order or capture id. It differs from Stripe/Solidgate in three structural ways:
+        </p>
+        <ul className="mb-4 list-disc space-y-1.5 pl-5 text-sm text-muted-foreground">
+          <li>
+            <strong className="text-foreground">Decimal-string amounts.</strong> PayPal&apos;s{" "}
+            <code className="font-mono">amount.value</code> is a decimal string (e.g.{" "}
+            <code className="font-mono">&quot;19.99&quot;</code>), not integer minor units — this adapter
+            converts at the boundary (<code className="font-mono">amountToPayPalValue</code>/{" "}
+            <code className="font-mono">payPalValueToMinorUnits</code>) so the &quot;money is always integer
+            minor units&quot; non-negotiable still holds everywhere else in the codebase.
+          </li>
+          <li>
+            <strong className="text-foreground">OAuth2, not a static API key.</strong> Every call first
+            resolves a short-lived access token (<code className="font-mono">getAccessToken</code>, cached
+            until near expiry) from client id/secret, rather than sending a secret key directly.
+          </li>
+          <li>
+            <strong className="text-foreground">Webhook verification is a live API call, not local HMAC.</strong>{" "}
+            Unlike Stripe (local HMAC-SHA256) and Solidgate (local HMAC-SHA512), PayPal has no documented
+            local verification algorithm for its certificate-based webhook scheme — this adapter instead
+            calls PayPal&apos;s own <code className="font-mono">POST /v1/notifications/verify-webhook-signature</code>{" "}
+            for every inbound webhook. This is flagged explicitly in the adapter&apos;s source as a deliberate
+            trade-off: added latency and an availability dependency on PayPal being reachable, in exchange
+            for not having to implement PayPal&apos;s certificate-chain verification from scratch. Requires a{" "}
+            <code className="font-mono">PAYPAL_WEBHOOK_ID</code> per <code className="font-mono">
+              psp_account
+            </code>{" "}
+            — the adapter refuses to verify without one rather than silently skipping verification.
+          </li>
+        </ul>
+        <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
+          Decline handling for a denied/failed capture is a small, hand-authored table (
+          <code className="font-mono">declineReasonToCategory</code>/<code className="font-mono">
+            declineReasonToRetryClass
+          </code>{" "}
+          in <code className="font-mono">statusmapping.go</code>) rather than a DB-backed{" "}
+          <code className="font-mono">decline_code_map</code> lookup — an operator-configured{" "}
+          <code className="font-mono">decline_code_map</code> row still takes priority if one exists, but
+          PayPal&apos;s <code className="font-mono">status_details.reason</code> values are a small, fully
+          enumerated set (unlike card-network issuer codes), so a built-in fallback table was judged
+          sufficient. Capabilities: <code className="font-mono">USD</code>/<code className="font-mono">
+            EUR
+          </code>
+          /<code className="font-mono">GBP</code> only, no 3DS. Settlement/payout listing is an honest,
+          explicitly-flagged &quot;not yet implemented&quot; (PayPal&apos;s Transaction Search / Reporting APIs
+          were out of scope for the session that built this adapter); account-updater is a considered
+          &quot;genuinely no equivalent&quot; — a PayPal account isn&apos;t a card PAN a network can silently
+          reissue.
+        </p>
+      </section>
+
+      <section className="mt-10">
+        <h2 id="stripe-vs-solidgate" className="mb-3 text-lg font-semibold text-foreground">All three adapters, side by side</h2>
         <Table>
           <THead>
             <TR>
               <TH></TH>
               <TH>Stripe</TH>
               <TH>Solidgate</TH>
+              <TH>PayPal</TH>
             </TR>
           </THead>
           <TBody>
@@ -240,39 +297,58 @@ interface NormalizedDecline {
               <TD className="font-medium">Correlation</TD>
               <TD className="text-xs">metadata.payment_id round-trip</TD>
               <TD className="text-xs">order_id = our payment UUID directly</TD>
+              <TD className="text-xs">custom_id on the purchase unit</TD>
             </TR>
             <TR>
               <TD className="font-medium">Required fields</TD>
               <TD className="text-xs">payment_method, capture_method</TD>
               <TD className="text-xs">customer_email is required (throws if absent)</TD>
+              <TD className="text-xs">none beyond amount/currency</TD>
             </TR>
             <TR>
-              <TD className="font-medium">3DS model</TD>
+              <TD className="font-medium">Amount encoding</TD>
+              <TD className="text-xs">integer minor units</TD>
+              <TD className="text-xs">integer minor units</TD>
+              <TD className="text-xs">decimal string — converted at the adapter boundary</TD>
+            </TR>
+            <TR>
+              <TD className="font-medium">Auth model</TD>
+              <TD className="text-xs">static secret key</TD>
+              <TD className="text-xs">static secret key + signed requests</TD>
+              <TD className="text-xs">OAuth2 access token, cached until near expiry</TD>
+            </TR>
+            <TR>
+              <TD className="font-medium">3DS / challenge model</TD>
               <TD className="text-xs">client_secret (Payment Intents)</TD>
               <TD className="text-xs">verify_url redirect</TD>
+              <TD className="text-xs">not supported (Capabilities().ThreeDs: false)</TD>
             </TR>
             <TR>
               <TD className="font-medium">Webhook auth</TD>
-              <TD className="text-xs">stripe-signature header, HMAC-SHA256</TD>
-              <TD className="text-xs">merchant/signature headers, HMAC-SHA512 then base64-of-hex</TD>
+              <TD className="text-xs">stripe-signature header, local HMAC-SHA256</TD>
+              <TD className="text-xs">merchant/signature headers, local HMAC-SHA512 then base64-of-hex</TD>
+              <TD className="text-xs">outbound call to PayPal&apos;s verify-webhook-signature endpoint — no local algorithm</TD>
             </TR>
             <TR>
               <TD className="font-medium">Settlement/payout polling</TD>
               <TD className="text-xs">implemented (balanceTransactions, payouts)</TD>
+              <TD className="text-xs">stubs returning [] — not yet implemented</TD>
               <TD className="text-xs">stubs returning [] — not yet implemented</TD>
             </TR>
             <TR>
               <TD className="font-medium">Account updater</TD>
               <TD className="text-xs">no polling equivalent exists (Stripe surfaces it as an ordinary decline on next charge)</TD>
               <TD className="text-xs">stub returning []</TD>
+              <TD className="text-xs">genuinely no equivalent — not a card PAN a network can reissue</TD>
             </TR>
           </TBody>
         </Table>
         <p className="mt-3 text-xs text-muted-foreground">
-          Per the ADR, several Solidgate details (endpoint paths for settle/void/status, the exact
-          token-payment field name, the API base URL default) are flagged as inferred from documentation
-          rather than confirmed against a live sandbox account — this adapter has never been run against
-          real Solidgate infrastructure.
+          Per the respective ADRs/source comments, several Solidgate and PayPal details (Solidgate&apos;s
+          settle/void/status endpoint paths and base URL default; PayPal&apos;s certificate-based webhook
+          verification, sidestepped via a live API call instead) are flagged as inferred from documentation
+          or deliberately worked around rather than confirmed against a live sandbox account — neither
+          adapter has been run against real infrastructure for those specific paths.
         </p>
       </section>
     </div>

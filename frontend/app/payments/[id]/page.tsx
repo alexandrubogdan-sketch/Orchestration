@@ -52,7 +52,14 @@ export default async function PaymentDetailPage({
               <Row label="Product">{payment.product}</Row>
               <Row label="Legal entity">{payment.merchantEntity}</Row>
               <Row label="PSP account">{payment.pspAccount}</Row>
-              <Row label="Customer">{payment.customerEmail}</Row>
+              <Row label="Customer">
+                <Link
+                  href={`/customers/${payment.customerId}`}
+                  className="text-accent-foreground hover:underline"
+                >
+                  {payment.customerEmail}
+                </Link>
+              </Row>
               {payment.declineCode ? (
                 <Row label="Decline code">
                   <span className="font-mono text-xs text-danger">{payment.declineCode}</span>

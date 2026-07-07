@@ -8,15 +8,56 @@ config-driven PSP routing with circuit breakers, an append-only
 transaction ledger with settlement reconciliation, subscriptions with
 dunning, and outbound webhooks to downstream products.
 
-This repo has two parts:
+This repo has four parts:
 
 ```
-backend/    Node/TypeScript/Fastify/Postgres API + worker — the real product.
-frontend/   Next.js dashboard UI — built early against the backend's data
-            model, still running on mock data (see frontend/README.md).
+backend/      Node/TypeScript/Fastify/Postgres API + worker — the ORIGINAL
+              backend, currently deployed and live on Railway. Unchanged
+              by this update.
+backend-go/   A from-scratch Go rewrite of the same backend (chi, pgx,
+              Hatchet's Go SDK) — feature-complete and manually audited,
+              but NOT YET DEPLOYED. See "Go backend status" below before
+              attempting to build/deploy it.
+frontend/     Next.js dashboard UI — mock-data-driven, now covering
+              Customers, Plans (recurring/one-off, trials, tax
+              collection, price overrides), Integrations (incl. PayPal),
+              Team/invites, a configurable Retries/dunning tab, and the
+              full /docs section.
+sdk/          @alphapayments/checkout-sdk — a browser-embeddable
+              checkout SDK (Stripe.js-Elements-style Card/Express
+              Checkout elements, automatic 3DS) that pairs with
+              backend-go's checkout-sessions endpoints.
 ```
 
-## Backend
+## Go backend status — read before deploying
+
+`backend-go/` is functionally complete (payments, customers, checkout
+sessions, plans, retry/dunning settings, routing, ledger/reconciliation,
+Stripe/Solidgate/PayPal/mock adapters) and has been through a full
+manual audit that found and fixed a real bug (webhook signature headers
+weren't matched case-insensitively, which would have silently rejected
+every real PSP webhook). **It has never successfully compiled.**
+`go.mod` pins `github.com/hatchet-dev/hatchet/sdks/go` to a placeholder
+`v0.0.0` — no build environment in this project's history has ever had
+real network access to resolve a working version — and there is no
+`go.sum`. Before deploying this anywhere:
+
+```bash
+cd backend-go
+go get github.com/hatchet-dev/hatchet/sdks/go@latest   # or a version-pinned tag
+go mod tidy                                             # generates go.sum for real
+go build ./...                                          # first real compile of this codebase
+go vet ./...
+go test ./...
+```
+
+Only after that succeeds should `backend/` be replaced with
+`backend-go/`'s contents (or the Railway service repointed at
+`backend-go/`) and redeployed — this repo intentionally keeps the
+live `backend/` untouched until that verification happens, rather than
+risk the currently-working deployment on an unbuilt codebase.
+
+## Backend (live, TypeScript)
 
 The actual orchestrator: Fastify API, a Postgres-backed canonical state
 machine, PSP adapters (Stripe + Solidgate) behind one interface, a

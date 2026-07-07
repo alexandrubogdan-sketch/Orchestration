@@ -1,0 +1,23 @@
+{
+  "id": "evt_1PQfailedgeneric000",
+  "object": "event",
+  "type": "payment_intent.payment_failed",
+  "api_version": "2026-06-24.dahlia",
+  "created": 1735776000,
+  "data": {
+    "object": {
+      "id": "pi_1PQfailedgeneric",
+      "object": "payment_intent",
+      "amount": 2500,
+      "currency": "usd",
+      "status": "requires_payment_method",
+      "capture_method": "automatic",
+      "last_payment_error": {
+        "type": "invalid_request_error",
+        "code": "processing_error",
+        "message": "An error occurred while processing your card."
+      },
+      "metadata": { "payment_id": "pay_01H0000000000000000000004" }
+    }
+  }
+}

@@ -1,24 +1,88 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Repeat, Trash2 } from "lucide-react";
+import { MoreHorizontal, Plus } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Badge, type BadgeTone } from "@/components/ui/badge";
+import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { CopyToClipboardButton } from "@/components/ui/copy-to-clipboard-button";
 import { PlanForm } from "@/components/plans/plan-form";
 import { usePlanStore } from "@/lib/plan-store";
 import { DEFAULT_PRICE_COUNTRY, type Plan } from "@/lib/types";
-import { formatMoney } from "@/lib/utils";
+import { formatDate, formatMoney } from "@/lib/utils";
+
+const PLAN_TYPE_TONES: Record<Plan["type"], BadgeTone> = {
+  recurring: "accent",
+  "one-off": "neutral",
+};
+
+function intervalLabel(count: number, unit: string): string {
+  return count === 1 ? unit.replace(/s$/, "") : `${count} ${unit}`;
+}
+
+/** Compact price + interval summary, with a dimmed trial line underneath
+ *  when the plan has an enabled trial — mirrors the real client's plans
+ *  table "info" column layout. */
+function PlanInfoCell({ plan }: { plan: Plan }) {
+  const defaultPrice = plan.prices.find((p) => p.country === DEFAULT_PRICE_COUNTRY) ?? plan.prices[0];
+  const trialDefaultPrice = plan.trial.prices.find((p) => p.country === DEFAULT_PRICE_COUNTRY) ?? plan.trial.prices[0];
+  const overrideCount = plan.rules.length;
+
+  return (
+    <div className="flex max-w-[220px] flex-col gap-0.5">
+      {defaultPrice ? (
+        <div className="text-sm">
+          {formatMoney(defaultPrice.amountMinorUnits, defaultPrice.currency)}
+          {plan.type === "recurring" ? (
+            <span className="text-muted-foreground">
+              {" "}
+              / {intervalLabel(plan.billingIntervalCount, plan.billingIntervalUnit)}
+            </span>
+          ) : null}
+        </div>
+      ) : (
+        <span className="text-sm text-muted-foreground">No price set</span>
+      )}
+
+      {plan.trial.enabled && trialDefaultPrice ? (
+        <div className="text-xs text-muted-foreground">
+          {formatMoney(trialDefaultPrice.amountMinorUnits, trialDefaultPrice.currency)} /{" "}
+          {intervalLabel(plan.trial.intervalCount, plan.trial.intervalUnit)} trial
+        </div>
+      ) : null}
+
+      {overrideCount > 0 ? (
+        <div className="text-xs text-muted-foreground">
+          {overrideCount} price {overrideCount === 1 ? "override" : "overrides"}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 export default function PlansPage() {
   const plans = usePlanStore((s) => s.plans);
   const createPlan = usePlanStore((s) => s.createPlan);
   const updatePlan = usePlanStore((s) => s.updatePlan);
   const deletePlan = usePlanStore((s) => s.deletePlan);
+  const duplicatePlan = usePlanStore((s) => s.duplicatePlan);
 
   const [creating, setCreating] = useState(false);
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
+
+  function handleDuplicate(plan: Plan) {
+    const newId = duplicatePlan(plan.id);
+    if (!newId) return;
+    const clone = usePlanStore.getState().plans.find((p) => p.id === newId);
+    if (clone) setEditingPlan(clone);
+  }
 
   return (
     <>
@@ -31,73 +95,75 @@ export default function PlansPage() {
           </Button>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {plans.map((plan) => {
-            const defaultPrice =
-              plan.prices.find((p) => p.country === DEFAULT_PRICE_COUNTRY) ?? plan.prices[0];
-            const overrides = plan.prices.filter((p) => p.id !== defaultPrice?.id);
-
-            return (
-              <Card key={plan.id} className="group relative">
-                <CardContent className="flex flex-col gap-3">
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10 text-accent-foreground">
-                        <Repeat className="h-4 w-4" />
-                      </div>
-                      <button className="text-sm font-semibold hover:underline" onClick={() => setEditingPlan(plan)}>
-                        {plan.name}
-                      </button>
-                    </div>
+        <div className="overflow-hidden rounded-xl border border-border bg-surface">
+          <Table>
+            <THead>
+              <TR>
+                <TH>Name</TH>
+                <TH>Type</TH>
+                <TH>Plan info</TH>
+                <TH>Created</TH>
+                <TH>Updated</TH>
+                <TH />
+              </TR>
+            </THead>
+            <TBody>
+              {plans.map((plan) => (
+                <TR key={plan.id}>
+                  <TD>
                     <button
-                      onClick={() => deletePlan(plan.id)}
-                      className="text-muted-foreground opacity-0 transition-opacity hover:text-danger group-hover:opacity-100"
-                      title="Delete plan"
+                      className="block max-w-[220px] truncate text-left text-sm font-semibold hover:underline"
+                      onClick={() => setEditingPlan(plan)}
                     >
-                      <Trash2 className="h-4 w-4" />
+                      {plan.name}
                     </button>
-                  </div>
-
-                  {defaultPrice ? (
-                    <div className="text-lg font-semibold">
-                      {formatMoney(defaultPrice.amountMinorUnits, defaultPrice.currency)}
-                      <span className="text-sm font-normal text-muted-foreground">
-                        {" "}
-                        / {plan.billingIntervalCount === 1
-                          ? plan.billingIntervalUnit.replace(/s$/, "")
-                          : `${plan.billingIntervalCount} ${plan.billingIntervalUnit}`}
-                      </span>
+                    <div className="group/plan-id flex items-center gap-1 text-xs text-muted-foreground">
+                      <span className="truncate font-mono">{plan.id}</span>
+                      <CopyToClipboardButton
+                        text={plan.id}
+                        className="opacity-0 transition-opacity group-hover/plan-id:opacity-100"
+                      />
                     </div>
-                  ) : null}
-
-                  {overrides.length > 0 ? (
-                    <div className="flex flex-wrap gap-1">
-                      {overrides.map((row) => (
-                        <Badge key={row.id} tone="neutral">
-                          {row.country || "?"}: {formatMoney(row.amountMinorUnits, row.currency)}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : null}
-
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    {plan.trial.enabled ? (
-                      <Badge tone="info">
-                        {plan.trial.intervalCount} {plan.trial.intervalUnit} trial
-                      </Badge>
-                    ) : (
-                      <Badge tone="neutral">No trial</Badge>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                  </TD>
+                  <TD>
+                    <Badge tone={PLAN_TYPE_TONES[plan.type]}>
+                      {plan.type === "recurring" ? "Recurring" : "One-off"}
+                    </Badge>
+                  </TD>
+                  <TD>
+                    <PlanInfoCell plan={plan} />
+                  </TD>
+                  <TD className="text-sm text-muted-foreground">{formatDate(plan.createdAt)}</TD>
+                  <TD className="text-sm text-muted-foreground">{formatDate(plan.updatedAt)}</TD>
+                  <TD>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" aria-label="Plan actions">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setEditingPlan(plan)}>Edit</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleDuplicate(plan)}>Duplicate</DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => deletePlan(plan.id)}
+                          className="text-danger focus:bg-danger-bg focus:text-danger"
+                        >
+                          Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TD>
+                </TR>
+              ))}
+            </TBody>
+          </Table>
+          {plans.length === 0 ? (
+            <div className="p-8 text-center text-sm text-muted-foreground">
+              No plans yet — create one to start billing.
+            </div>
+          ) : null}
         </div>
-
-        {plans.length === 0 ? (
-          <div className="mt-8 text-center text-sm text-muted-foreground">No plans yet — create one to start billing.</div>
-        ) : null}
       </div>
 
       {creating ? (

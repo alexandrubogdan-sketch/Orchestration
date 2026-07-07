@@ -1,0 +1,16 @@
+{
+  "_comment": "Ambiguity fixture (see statusMapping.ts's docblock): requires_payment_method AFTER a failed confirm attempt — last_payment_error present, so this must map to 'declined', not 'pending'.",
+  "id": "pi_1PQafterdecline",
+  "object": "payment_intent",
+  "amount": 1999,
+  "currency": "usd",
+  "status": "requires_payment_method",
+  "capture_method": "automatic",
+  "last_payment_error": {
+    "type": "card_error",
+    "code": "card_declined",
+    "decline_code": "do_not_honor",
+    "message": "Your card was declined."
+  },
+  "metadata": { "payment_id": "pay_01H0000000000000000000009" }
+}

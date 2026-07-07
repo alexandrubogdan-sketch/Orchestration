@@ -17,7 +17,8 @@ export default function PaymentsDocsPage() {
         <h2 id="canonical-states" className="mb-3 text-lg font-semibold text-foreground">Canonical states</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
           A payment moves through exactly one of 15 states, defined in{" "}
-          <code className="font-mono">src/domain/stateMachine.ts</code>:
+          <code className="font-mono">payment-orchestrator-go/internal/domain/statemachine.go</code>{" "}
+          (a 1:1 port of the original <code className="font-mono">src/domain/stateMachine.ts</code>):
         </p>
         <div className="mb-4 flex flex-wrap gap-1.5">
           {[
@@ -60,7 +61,7 @@ export default function PaymentsDocsPage() {
           <code className="font-mono">ALLOWED_TRANSITIONS</code> maps each state to the canonical event types
           it accepts and where they lead:
         </p>
-        <CodeBlock label="src/domain/stateMachine.ts (abridged)">{`created         + authentication_required   -> requires_action
+        <CodeBlock label="internal/domain/statemachine.go (abridged)">{`created         + authentication_required   -> requires_action
 created         + authorization_started      -> authorizing
 requires_action + authentication_completed   -> authorizing
 requires_action + authentication_failed      -> declined
@@ -110,11 +111,13 @@ dispute_opened  + dispute_lost                -> dispute_lost`}</CodeBlock>
 
       <section className="mb-10">
         <h2 id="effectful-transitions" className="mb-3 text-lg font-semibold text-foreground">
-          Effectful transitions: <code className="font-mono">stateMachineDb.ts</code>
+          Effectful transitions: <code className="font-mono">internal/statemachine/db.go</code>
         </h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
-          <code className="font-mono">transition(db, paymentId, event)</code> is the single choke point for
-          all state changes. It locks the row with <code className="font-mono">SELECT ... FOR UPDATE</code>{" "}
+          <code className="font-mono">Transition(ctx, pool, paymentId, event)</code> is the single choke
+          point for all state changes. It locks the row with <code className="font-mono">
+            SELECT ... FOR UPDATE
+          </code>{" "}
           inside a DB transaction, validates via the pure state machine above, and — whatever the
           outcome — writes exactly one <code className="font-mono">payment_events</code> row in the same
           transaction. On a successful transition it also enqueues an outbox row (
@@ -128,7 +131,7 @@ dispute_opened  + dispute_lost                -> dispute_lost`}</CodeBlock>
         <h2 id="timeline-events" className="mb-3 text-lg font-semibold text-foreground">Timeline events (the public contract)</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
           Internal canonical event types are richer than what&apos;s exposed. <code className="font-mono">
-            src/domain/timelineEvents.ts
+            internal/api/timeline.go
           </code>{" "}
           defines a smaller, stable vocabulary (<code className="font-mono">TIMELINE_EVENT_NAMES</code>) that
           products and this dashboard actually see:
@@ -215,8 +218,10 @@ dispute_opened  + dispute_lost                -> dispute_lost`}</CodeBlock>
         <h2 id="money" className="mb-3 text-lg font-semibold text-foreground">Money</h2>
         <p className="text-sm leading-relaxed text-muted-foreground">
           All amounts are a branded <code className="font-mono">Money</code> type (
-          <code className="font-mono">{"{ minorUnits: number; currency: string }"}</code>), constructed only
-          via <code className="font-mono">makeMoney()</code>, which rejects non-integers, unsafe integers,
+          <code className="font-mono">{"{ minorUnits: number; currency: string }"}</code> on the wire),
+          constructed only via <code className="font-mono">MakeMoney()</code> (
+          <code className="font-mono">internal/domain/money.go</code> — a 1:1 port of the original{" "}
+          <code className="font-mono">makeMoney()</code>), which rejects non-integers, unsafe integers,
           negative values, and any currency outside a 20-code allow-list. A small zero-decimal set (JPY,
           KRW, VND, CLP, ISK, HUF) is handled explicitly in both the backend and this dashboard&apos;s{" "}
           <code className="font-mono">formatMoney()</code> helper — everything else is assumed to have 2

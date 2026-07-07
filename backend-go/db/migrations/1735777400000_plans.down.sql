@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS plan_price_rules;
+DROP TABLE IF EXISTS plans;

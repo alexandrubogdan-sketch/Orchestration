@@ -1,0 +1,31 @@
+{
+  "id": "5O190127TN364715T",
+  "status": "APPROVED",
+  "intent": "CAPTURE",
+  "purchase_units": [
+    {
+      "amount": {
+        "currency_code": "USD",
+        "value": "100.00"
+      },
+      "custom_id": "pay_int_abc123"
+    }
+  ],
+  "links": [
+    {
+      "href": "https://api-m.sandbox.paypal.com/v2/checkout/orders/5O190127TN364715T",
+      "rel": "self",
+      "method": "GET"
+    },
+    {
+      "href": "https://www.sandbox.paypal.com/checkoutnow?token=5O190127TN364715T",
+      "rel": "approve",
+      "method": "GET"
+    },
+    {
+      "href": "https://api-m.sandbox.paypal.com/v2/checkout/orders/5O190127TN364715T/capture",
+      "rel": "capture",
+      "method": "POST"
+    }
+  ]
+}

@@ -89,7 +89,14 @@ export function PaymentsTable({ payments }: { payments: Payment[] }) {
                     {payment.id}
                   </Link>
                 </TD>
-                <TD className="text-sm">{payment.customerEmail}</TD>
+                <TD className="text-sm">
+                  <Link
+                    href={`/customers/${payment.customerId}`}
+                    className="text-accent-foreground hover:underline"
+                  >
+                    {payment.customerEmail}
+                  </Link>
+                </TD>
                 <TD className="text-sm text-muted-foreground">{payment.product}</TD>
                 <TD className="text-sm text-muted-foreground">{payment.pspAccount}</TD>
                 <TD>

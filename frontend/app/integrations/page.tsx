@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Plug, Plus, Trash2, Zap } from "lucide-react";
+import { Plus, Trash2, Zap } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ConnectDialog } from "@/components/integrations/connect-dialog";
 import { AddIntegrationDialog } from "@/components/integrations/add-integration-dialog";
+import { ProcessorIcon } from "@/components/integrations/processor-icons";
 import { useIntegrationStore } from "@/lib/integration-store";
 import { formatDate } from "@/lib/utils";
 import {
@@ -52,7 +53,7 @@ export default function IntegrationsPage() {
               <CardContent className="flex flex-col gap-3">
                 <div className="flex items-center gap-2">
                   <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent/10 text-accent-foreground">
-                    <Plug className="h-4 w-4" />
+                    <ProcessorIcon processor={integration.processor} />
                   </div>
                   <div>
                     <div className="text-sm font-semibold">{integration.displayName}</div>

@@ -10,8 +10,17 @@ export default function WorkflowsDocsPage() {
       <DocsHeader
         eyebrow="Configuration"
         title="Workflows"
-        description="The no-code trigger → condition → action model this dashboard exposes for routing payments per payment method."
+        description="The no-code trigger → condition → action model this dashboard exposes for routing payments per payment method — plus a Retries tab covering the separate dunning/retry policy."
       />
+
+      <p className="mb-8 text-sm leading-relaxed text-muted-foreground">
+        This page covers workflow routing. Same-instrument retries and subscription dunning are a related
+        but separate concept, documented on their own page:{" "}
+        <a href="/docs/retries" className="font-medium text-accent-foreground underline underline-offset-2">
+          Retries &amp; dunning
+        </a>
+        .
+      </p>
 
       <Callout tone="warning" title="Modeled on PayNext, not on this backend's schema" className="mb-8">
         The Workflows UI (<code className="font-mono">lib/types.ts</code>, <code className="font-mono">
@@ -114,9 +123,14 @@ export default function WorkflowsDocsPage() {
         <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
           <code className="font-mono">processor</code> picks which connected integration handles the
           charge, with an optional <code className="font-mono">fallbackProcessor</code> for failover.{" "}
-          <code className="font-mono">PROCESSORS</code> is currently just{" "}
-          <code className="font-mono">[&quot;stripe&quot;, &quot;solidgate&quot;]</code> — matching the backend&apos;s two
-          built adapters, even though PayNext&apos;s own model supports more (Braintree, PayPal, Unlimit).
+          <code className="font-mono">PROCESSORS</code> is <code className="font-mono">
+            [&quot;stripe&quot;, &quot;solidgate&quot;, &quot;paypal&quot;]
+          </code>{" "}
+          — matching the backend&apos;s three built adapters (see{" "}
+          <a href="/docs/adapters" className="font-medium text-accent-foreground underline underline-offset-2">
+            PSP adapters &amp; declines
+          </a>
+          ), even though PayNext&apos;s own model supports more (Braintree, Unlimit).
         </p>
       </section>
 
@@ -189,9 +203,17 @@ export default function WorkflowsDocsPage() {
           help.
         </p>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          A central retry policy caps same-instrument retries at 3 attempts per payment with a minimum
-          2-second spacing, and refuses outright to retry hard declines or{" "}
-          <code className="font-mono">review</code>-class declines.
+          A central retry policy caps same-instrument retries at a configurable max attempts per payment
+          (default 3) with a configurable minimum spacing (default 2 seconds), and refuses outright to
+          retry hard declines or <code className="font-mono">review</code>-class declines. See{" "}
+          <a href="/docs/retries" className="font-medium text-accent-foreground underline underline-offset-2">
+            Retries &amp; dunning
+          </a>{" "}
+          — this policy, and the subscription dunning ladder, both moved from hardcoded constants to a
+          real, per-merchant-entity <code className="font-mono">retry_settings</code> table with a{" "}
+          <code className="font-mono">GET</code>/<code className="font-mono">PUT /v1/retry-settings</code>{" "}
+          API, surfaced in this dashboard as a Retries tab alongside Workflows (
+          <code className="font-mono">app/workflows/retries/page.tsx</code>).
         </p>
         <Callout tone="info" title="No admin API for routing rules yet">
           Per <code className="font-mono">docs/adr/0007-routing-rules-engine.md</code>, there are no HTTP

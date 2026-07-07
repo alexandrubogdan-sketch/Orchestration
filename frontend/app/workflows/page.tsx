@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CreateWorkflowDialog } from "@/components/workflow/create-workflow-dialog";
+import { WorkflowsSubnav } from "@/components/workflow/workflows-subnav";
 import { useWorkflowStore } from "@/lib/workflow-store";
 import { PAYMENT_METHOD_LABELS } from "@/lib/types";
 import { formatDateTime } from "@/lib/utils";
@@ -23,6 +24,7 @@ export default function WorkflowsPage() {
         title="Workflows"
         description="Route payments per payment method — one trigger, then conditions and actions"
       />
+      <WorkflowsSubnav />
       <div className="flex-1 overflow-y-auto p-8">
         <div className="mb-4 flex items-center justify-between">
           <span className="text-sm text-muted-foreground">{workflows.length} workflow(s)</span>

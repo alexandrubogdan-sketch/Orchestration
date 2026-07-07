@@ -1,0 +1,17 @@
+DROP TABLE IF EXISTS decline_code_map;
+DROP TABLE IF EXISTS outbox;
+DROP TABLE IF EXISTS idempotency_keys;
+DROP TABLE IF EXISTS webhook_inbox;
+DROP TRIGGER IF EXISTS payment_events_append_only ON payment_events;
+DROP TRIGGER IF EXISTS transactions_append_only ON transactions;
+DROP FUNCTION IF EXISTS reject_mutation();
+DROP TABLE IF EXISTS payment_events;
+DROP TABLE IF EXISTS transactions;
+DROP TABLE IF EXISTS payment_attempts;
+DROP TABLE IF EXISTS payments;
+DROP TABLE IF EXISTS payment_methods;
+DROP TABLE IF EXISTS customer_psp_refs;
+DROP TABLE IF EXISTS customers;
+DROP TABLE IF EXISTS psp_accounts;
+DROP TABLE IF EXISTS products;
+DROP TABLE IF EXISTS merchant_entities;

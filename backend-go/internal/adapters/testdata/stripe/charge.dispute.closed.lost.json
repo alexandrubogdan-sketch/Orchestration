@@ -1,0 +1,19 @@
+{
+  "id": "evt_1PQdisputelost000",
+  "object": "event",
+  "type": "charge.dispute.closed",
+  "api_version": "2026-06-24.dahlia",
+  "created": 1735776000,
+  "data": {
+    "object": {
+      "id": "dp_1PQdisputelost",
+      "object": "dispute",
+      "amount": 1999,
+      "currency": "usd",
+      "charge": "ch_1PQdisputed",
+      "payment_intent": "pi_1PQdisputed",
+      "reason": "fraudulent",
+      "status": "lost"
+    }
+  }
+}

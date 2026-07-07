@@ -1,0 +1,33 @@
+{
+  "id": "5O190127TN364715T",
+  "status": "COMPLETED",
+  "intent": "CAPTURE",
+  "purchase_units": [
+    {
+      "amount": {
+        "currency_code": "USD",
+        "value": "100.00"
+      },
+      "custom_id": "pay_int_abc123",
+      "payments": {
+        "captures": [
+          {
+            "id": "3C679366HH908993F",
+            "status": "COMPLETED",
+            "amount": {
+              "currency_code": "USD",
+              "value": "100.00"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "links": [
+    {
+      "href": "https://api-m.sandbox.paypal.com/v2/checkout/orders/5O190127TN364715T",
+      "rel": "self",
+      "method": "GET"
+    }
+  ]
+}
