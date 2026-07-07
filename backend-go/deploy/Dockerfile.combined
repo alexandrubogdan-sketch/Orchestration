@@ -1,0 +1,72 @@
+# Combined api+worker build — added 2026-07-07 specifically to fit
+# Railway's Free plan resource-creation limit: the project's Railway
+# account cannot currently provision a THIRD compute service (only
+# api/hatchet-lite exist as compute services; both Postgres instances
+# and Redis are already accounted for and legitimately in use — see
+# MIGRATION_NOTES.md's dated section on this for the full trail of
+# what was checked before concluding a separate worker service isn't
+# possible right now). This Dockerfile is a deliberate, temporary
+# compromise: same build as Dockerfile.api plus the worker binary,
+# both run in ONE container instead of two separate Railway services.
+#
+# Tradeoffs, stated plainly (per the user's own explicit choice among
+# the alternatives — upgrade the Railway plan, or skip the worker
+# entirely for now):
+#   - The api and worker processes can no longer scale or restart
+#     independently — they live and die together as one container.
+#   - If cmd/worker panics/exits after boot, nothing in this container
+#     restarts it on its own (see CMD below) — the container's health
+#     is governed entirely by the api process, since that's what's
+#     exec'd as PID 1 and what Railway's restart policy/healthcheck
+#     actually observes.
+#   - This is NOT how deploy/Dockerfile.api and deploy/Dockerfile.worker
+#     (the original, separate-service design) work — those two files
+#     are left in place, unmodified, and remain the correct target to
+#     switch back to the moment a second compute service is available
+#     (Hobby plan, or freeing a resource slot some other way).
+#
+# Everything else about this file — the "never been built" caveat, the
+# go.mod version-pin rationale, the go.sum-via-build-time-`go mod tidy`
+# rationale — is identical to Dockerfile.api's own top comment; see
+# that file rather than repeating it here.
+FROM golang:1.24-bookworm AS build
+WORKDIR /src
+
+COPY go.mod ./
+COPY . .
+
+RUN go mod tidy
+
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/api ./cmd/api
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/worker ./cmd/worker
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/migrate ./cmd/migrate
+# bootstraptoken: not part of the normal boot path (CMD below never
+# runs it) — included so it's available to run by hand from Railway's
+# Console tab against the deployed container (`./bootstraptoken`), see
+# that command's own doc comment for why it exists and why it was
+# needed (no earlier raw API token survived anywhere retrievable).
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/bootstraptoken ./cmd/bootstraptoken
+
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=build /out/api ./api
+COPY --from=build /out/worker ./worker
+COPY --from=build /out/migrate ./migrate
+COPY --from=build /out/bootstraptoken ./bootstraptoken
+COPY db/migrations ./db/migrations
+
+EXPOSE 3000
+# Run migrations once, start the worker IN THE BACKGROUND (`&`), then
+# exec the api process so IT becomes PID 1 — Railway's healthcheck and
+# restart policy are configured against the api process's HTTP port
+# (see deploy/Dockerfile.api's own EXPOSE 3000 / healthcheck setup),
+# so this ordering makes the container's observed health track api's
+# health specifically. The worker has no independent supervision here:
+# if it exits, the container keeps running (api is still PID 1 and
+# still healthy) but no background jobs (dunning, webhook retry/DLQ,
+# settlement ingestion, subscription renewals) are being processed
+# until the next full container restart. Documented as a known gap,
+# not a silently-accepted one — see this file's top comment.
+CMD ["sh", "-c", "./migrate up && ./worker & exec ./api"]

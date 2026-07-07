@@ -81,6 +81,18 @@ func (UnimplementedCustomersStore) ListActivePaymentMethods(context.Context, str
 	return nil, ErrNotImplemented
 }
 
+// ListCustomers is never actually reached with this stub in practice —
+// cmd/api/main.go wires PgxCustomersStore (a real implementation) for
+// CustomersStore as a whole from Phase 5 onward, and this method was
+// added 2026-07-07 alongside that real implementation, not before it
+// (see customers.go's top doc comment). Included only so
+// UnimplementedCustomersStore keeps satisfying the CustomersStore
+// interface for any caller/test that still wires this stub deliberately
+// (e.g. to test the "no DB layer" 501 path for the other two methods).
+func (UnimplementedCustomersStore) ListCustomers(context.Context, string, ListCustomersQuery) ([]CustomerRow, error) {
+	return nil, ErrNotImplemented
+}
+
 // NoopCircuitBreaker is the default CircuitBreaker cmd/api/main.go
 // wires until T5.3's Go port exists — every call is a no-op success,
 // matching "no circuit breaker installed" rather than "every call

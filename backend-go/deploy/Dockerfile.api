@@ -1,0 +1,81 @@
+# Multi-stage Dockerfile for the Go rewrite's API process — the Go
+# analogue of payment-orchestrator/Dockerfile's `runtime` stage
+# (mirrors its CMD pattern: run migrations, THEN start the server, so
+# every boot is self-healing instead of relying on someone remembering
+# a manual migration step — see that file's own comment for the exact
+# production-incident rationale this repeats).
+#
+# THIS DOCKERFILE HAS NEVER BEEN BUILT. The sandbox this Go port was
+# written in has no Go toolchain and no reachable proxy.golang.org/apt
+# mirror (see go.mod's dated comment for the full trail) — every line
+# below is written as carefully as this port could manage without ever
+# running `docker build` once. The `go mod tidy` step below is
+# DELIBERATE, not a mistake: this repo has never had a go.sum (see
+# go.mod's comment), so the base image's Go toolchain resolving every
+# dependency for the first time, with Railway's real network access,
+# IS this project's first real compile — if go.mod's version pins or
+# any hatchet.* call site in internal/worker are wrong, THIS is where
+# that surfaces, not before.
+#
+# Base image version: go.mod requires `go 1.26` (github.com/hatchet-dev/
+# hatchet v0.92.6's own minimum). golang:1.26 may not exist as a
+# published Docker Hub tag yet depending on exactly when Go 1.26 itself
+# shipped relative to whenever this actually gets built — golang:1.24
+# is used below as a conservative floor specifically BECAUSE Go's
+# GOTOOLCHAIN=auto default (Go 1.21+, unset here so the default
+# applies) will detect go.mod's `go 1.26` directive and download that
+# exact toolchain automatically during the RUN steps below, as long as
+# this build has network access (true on Railway, never tested here).
+# If golang:1.26 (or newer) has shipped by the time this is actually
+# built, bumping this FROM line removes a redundant toolchain download
+# but is not required for correctness.
+FROM golang:1.24-bookworm AS build
+WORKDIR /src
+
+# Copy just the module files first so this layer caches independently
+# of source changes — standard Go Docker layering, unverified here
+# only in the sense that NOTHING in this file has been verified, not
+# because this particular pattern is unusual.
+COPY go.mod ./
+# go.sum does not exist yet (see go.mod's comment) — `go mod tidy`
+# below creates it. If a future revision of this repo commits a real
+# go.sum, uncomment the line below and switch `go mod tidy` to `go mod
+# download` (readonly, faster, doesn't silently change requirements).
+# COPY go.sum ./
+
+COPY . .
+
+# Resolves every dependency and writes a real go.sum for the first
+# time ever for this module (see this file's top comment). Switch to
+# `go mod download` once a go.sum is committed and trusted.
+RUN go mod tidy
+
+# CGO_ENABLED=0 for a fully static binary (no libc dependency in the
+# runtime stage's minimal base image below).
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/api ./cmd/api
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/migrate ./cmd/migrate
+
+FROM debian:bookworm-slim AS runtime
+# ca-certificates: cmd/api makes outbound HTTPS calls (Stripe,
+# Solidgate) that need real root certs — a scratch/distroless-static
+# base would need certs copied in explicitly instead; debian-slim
+# keeps this simple at a small size cost, mirroring the TS backend's
+# own node:22-slim runtime choice above it in spirit (small, not
+# minimal-at-all-costs).
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=build /out/api ./api
+COPY --from=build /out/migrate ./migrate
+# cmd/migrate's migrationsDir constant is "file://db/migrations",
+# relative to the process's cwd — WORKDIR /app plus this COPY keeps
+# that relative path resolving correctly at runtime.
+COPY db/migrations ./db/migrations
+
+EXPOSE 3000
+# Run migrations, then exec the API process — exec (not `&&
+# ./api`) so the API process becomes PID 1 and receives SIGTERM
+# directly from the container runtime for graceful shutdown, matching
+# cmd/api/main.go's own signal.Notify(shutdown, syscall.SIGTERM,
+# syscall.SIGINT) handling.
+CMD ["sh", "-c", "./migrate up && exec ./api"]

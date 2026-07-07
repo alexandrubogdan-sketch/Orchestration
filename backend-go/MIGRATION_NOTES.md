@@ -4757,3 +4757,225 @@ precedent to check against:**
   specific to this codebase -- but it is asserted from general Go
   knowledge rather than from a verified precedent inside this specific
   repository, unlike almost everything else in this feature.
+
+## 2026-07-07: go.mod fix, migration runner, Dockerfiles (first deploy attempt)
+
+Triggered by an explicit user decision to replace the live TS backend
+with this Go port for a new frontend "Sandbox / Live" toggle, and to
+proceed with fixing this Go backend rather than deferring to the TS
+one, even knowing this sandbox cannot compile it. Three real gaps
+closed in this pass, plus one honest limitation that remains:
+
+**1. go.mod's Hatchet dependency was flat-out wrong, not just an
+unresolved version.** Every prior phase's go.mod comment described
+`github.com/hatchet-dev/hatchet/sdks/go v0.0.0` as "a placeholder
+version, fix by running `go get .../sdks/go@latest`" -- but that
+require line's MODULE PATH itself was wrong, not just its version.
+This sandbox gained `mcp__workspace__web_fetch` access this session
+(previously only bare `curl`/`apt`/`go` in the shell were tried, all
+blocked -- `web_fetch` goes through different infrastructure and could
+reach docs.hatchet.run, raw.githubusercontent.com, and pkg.go.dev even
+though the shell's own `curl` to proxy.golang.org and apt mirrors still
+returns 403). That let this pass actually confirm, for the first time
+in this port's history:
+  - `github.com/hatchet-dev/hatchet/sdks/go` has no go.mod of its own
+    (raw.githubusercontent.com/hatchet-dev/hatchet/main/sdks/go/go.mod
+    returns nothing) -- it is a SUBPACKAGE of the root module
+    `github.com/hatchet-dev/hatchet`, not a separately-versioned
+    module the way the placeholder's require line assumed.
+  - Confirmed directly from Hatchet's own official quickstart repo
+    (github.com/hatchet-dev/hatchet-go-quickstart)'s go.mod: it
+    requires `github.com/hatchet-dev/hatchet v0.92.6` while importing
+    `github.com/hatchet-dev/hatchet/sdks/go` as a package -- exactly
+    the shape go.mod now has.
+  - Confirmed `sdks/go` is the CURRENT sdk, not a deprecated one:
+    docs.hatchet.run/v1/migrating/migration-guide-go names three
+    historical Go SDKs (V0 `pkg/client`, deprecated "V1 Generics"
+    `pkg/v1`, current "V1 Reflection" `sdks/go`) -- this port's own
+    import path already matched the current one, so nothing about
+    tasks.go/cron.go/cmd/worker/main.go's IMPORT statements needed to
+    change, only go.mod's `require` line's module path + version.
+  - Re-checked every `hatchet.*` call site this port uses against real
+    docs/examples during this same pass: `NewClient`, `NewStandaloneTask`,
+    `WithWorkflows`, `WithRetries`, `WithWorkflowCron`,
+    `WithWorkflowCronInput`, `WithWorkflowDescription`, `Context`,
+    `StartBlocking`, `task.RunNoWait` -- all confirmed against
+    docs.hatchet.run/v1/{running-your-task,cron-runs} and the official
+    Go cron example (examples/go/cron/main.go). Two call sites remain
+    UNCONFIRMED (no Go example surfaced for either):
+    `hatchet.WithConcurrency(hatchet.Concurrency{Expression, MaxRuns})`
+    in tasks.go's webhook.apply task, and `RunNoWait`'s
+    `hatchet.WithRunKey(...)` option in tasks.go's outbox dispatcher.
+    If either is wrong, `go build` fails loudly at that exact line.
+  - go.mod's own `go 1.22` directive was also too low:
+    github.com/hatchet-dev/hatchet v0.92.6's own go.mod requires `go
+    1.26`. Bumped to match. Go's GOTOOLCHAIN=auto default (Go 1.21+)
+    should fetch that exact toolchain automatically given real network
+    access (Railway's build servers) -- untested here, same as
+    everything else in this port.
+
+**2. No migration-runner existed anywhere in this port.**
+internal/migrations only ever had migrations_test.go, a structural
+check that parses db/migrations and enumerates version pairs WITHOUT
+ever touching a live Postgres connection (see that file's own top
+comment -- it says so explicitly). There was no code path anywhere
+that could actually apply a migration to a real database. Added
+cmd/migrate/main.go: a small CLI (`up`/`down N`/`version`) using
+golang-migrate's `database/postgres` + `source/file` drivers directly
+against `DATABASE_URL`, deliberately NOT going through
+internal/config.Load() (which requires HATCHET_CLIENT_TOKEN/STRIPE_*/
+SOLIDGATE_* — none of which a migration step needs, and none of which
+should block it from running in a context where those aren't set yet).
+
+**3. No Dockerfile existed for either the api or worker process.**
+Added deploy/Dockerfile.api and deploy/Dockerfile.worker, both mirroring
+the TS backend's own root Dockerfile's `runtime` stage pattern exactly
+(see that file's comment for the original production-incident
+rationale): multi-stage build, `go mod tidy` at build time (this
+module has NEVER had a go.sum -- see go.mod's comment -- so the
+build's own first `go mod tidy` run, with Railway's real network
+access, is this project's first real compile, full stop), then a slim
+`debian:bookworm-slim` runtime stage whose CMD runs `./migrate up`
+before `exec`-ing the actual service binary, so every boot is
+self-healing on a fresh or behind-schedule database rather than
+depending on a human remembering a manual migration step. Both
+Dockerfiles run migrate on boot (not just the api one) since
+golang-migrate's Postgres driver takes a session-level advisory lock
+during Up()/Down(), so two containers racing on a fresh deploy
+serialize safely rather than corrupting `schema_migrations`.
+
+**What's still genuinely unverified, stated plainly:** nothing in this
+Go module has ever been compiled, vetted, or tested by any tool
+anywhere in this port's history — not `go build`, not `go vet`, not
+`go test`, not even once. Every fix in this section was made by reading
+real, current, official documentation and cross-referencing this
+codebase's existing call sites against it as carefully as this sandbox
+allows without a Go toolchain, but the actual first compile happens on
+whatever build system runs `docker build -f deploy/Dockerfile.api .`
+against this repo, and that has not happened yet as of this note.
+
+## 2026-07-07: added GET /v1/customers (list) — closing a real gap found while building the frontend's Live-mode proxy routes
+
+While wiring the sibling frontend repo's new Sandbox/Live environment
+toggle to call this backend for real (server-side Next.js proxy routes
+holding the Bearer token), it became clear this port had **no way to
+list customers at all** — `customers.go` only ever exposed
+`GET /v1/customers/:id/payment-methods` (requires already knowing a
+customer id), unlike every other resource this API exposes (payments,
+plans, retry-settings), which all have a list route. There was never a
+TS source for a customers-list route either — `src/api/routes/
+customers.ts` never had one — so this is new surface area for the
+product, not a gap this port introduced by mistranslating something
+that already existed.
+
+Added, following this codebase's own established `ListPayments`
+pattern (`payments.go`/`pgpaymentsstore.go`) as closely as the
+narrower query surface allows, rather than inventing new conventions:
+
+- **`customers.go`**: `CustomerRow`, `CustomerDTO`,
+  `ListCustomersQuery`, `ListCustomersResponse` (reuses
+  `ListPaginationDTO` from `payments.go` — same `{hasMore,
+  nextCursor}` shape), `CustomersStore.ListCustomers` added to the
+  interface, `handleListCustomers` + `parseListCustomersQuery`,
+  `GET /v1/customers` registered in `registerCustomersRoutes` (Bearer-
+  authenticated, same `/v1` group as every other business route — see
+  `router.go`).
+- **`pgcustomersstore.go`**: `PgxCustomersStore.ListCustomers` — a
+  real, non-stub SQL implementation from the moment this method was
+  added (unlike `FindCustomer`/`ListActivePaymentMethods`, which spent
+  Phases 3-4 as `UnimplementedCustomersStore` stubs before Phase 5 wired
+  them for real — there was no such interim period for this one).
+  Keyset-paginated by `id` (`WHERE id < $cursor ORDER BY id DESC`),
+  scoped by `merchant_entity_id` (this table has no `product_id`
+  column — matches `FindCustomer`'s own existing scoping, not a new
+  decision).
+- **`stubs.go`**: `UnimplementedCustomersStore.ListCustomers` added
+  (returns `ErrNotImplemented`) purely so that stub type keeps
+  satisfying the now-larger `CustomersStore` interface; `cmd/api/
+  main.go` already wires the real `PgxCustomersStore` for
+  `CustomersStore` as a whole (Phase 5), so this stub method is not
+  expected to actually be hit in the deployed service.
+
+**What this does NOT cover, flagged explicitly rather than glossed
+over:** the `customers` table (core-schema migration) only has
+`id`, `merchant_entity_id`, `external_ref`, `email`, `created_at`,
+`updated_at` — no name, address, or subscription columns. The sibling
+frontend's mock/demo `Customer` type (`lib/types.ts` in
+`payment-orchestrator-frontend`) has `firstName`/`lastName`/`address`/
+`subscription` fields that this endpoint structurally cannot return,
+because no column for any of them exists anywhere in this schema. A
+Live-mode Customers page built against `GET /v1/customers` will show
+strictly fewer fields (id, externalRef, email, createdAt, updatedAt)
+than the Sandbox/demo page's mock data does, until a future migration
+adds those columns — this is a real product gap, not a bug in this
+endpoint, and is being left for the frontend integration step to
+surface in the UI rather than papered over here.
+
+Same caveat as every other change in this document applies
+unchanged: **this was written without a Go toolchain and has never
+been compiled.** `CustomerRow`'s field order in the `Scan` call in
+`scanCustomerRow` was written to match `customerColumns`'s declared
+order exactly (the same discipline `scanPaymentRow`/`paymentColumns`
+already established in this file), but that correspondence has not
+been checked by a compiler.
+
+## 2026-07-07: first real deploy attempt — Dockerfile.combined + cmd/bootstraptoken
+
+Actually deploying this port hit two real, non-code constraints on the
+Railway project ("prolific-friendship") this was deployed into:
+
+1. **The account's Free plan resource-creation limit is exceeded** —
+   Railway blocks provisioning any new compute service. There is no
+   separate `worker` service despite earlier task tracking claiming
+   one existed; it appears to have failed to create. Two candidate
+   fixes were checked and rejected before landing on a third:
+   deleting `Postgres-GhaG` looked promising (a second Postgres beyond
+   the one `api` uses) until actually checking its wiring — it is
+   `hatchet-lite`'s own database (`DATABASE_URL =
+   ${{Postgres-GhaG.DATABASE_URL}}`), not an orphan, so deleting it
+   would have broken a currently-working service. Upgrading the
+   Railway plan requires the account owner to pay for it, not
+   something this session does unilaterally. The user's own chosen
+   fix, given those two are off the table: run api and worker as two
+   processes in ONE Railway service/container instead of two. Added
+   **`deploy/Dockerfile.combined`** — same build as `Dockerfile.api`
+   plus the worker binary, `CMD ["sh", "-c", "./migrate up && ./worker
+   & exec ./api"]`. `Dockerfile.api`/`Dockerfile.worker` are left
+   unmodified as the correct target to switch back to once a second
+   compute service becomes available — see that file's own top comment
+   for the tradeoffs this accepts in the meantime (worker isn't
+   independently supervised; if it exits, background jobs silently
+   stop running until the next full container restart).
+
+2. **No retrievable API token exists.** `internal/api/auth.go`'s
+   token scheme only ever stores a SHA-256 hash — by design, the raw
+   token is unrecoverable once issued. The TS reference's
+   `scripts/seed.ts` would have printed one to a console at some
+   earlier point in this project's history, but nothing captured that
+   output anywhere retrievable — checked the deployed Vercel frontend
+   project's environment variables specifically (zero configured) to
+   rule out "it's sitting in an env var somewhere." Added
+   **`cmd/bootstraptoken`** — a small one-off command (see its own doc
+   comment for the full rationale) that resolves an existing
+   merchant_entity/product (preferring the seed script's own "US-LLC"
+   entity) or creates one if the database is empty, mints a fresh
+   token via the existing `GenerateAPIToken()`, inserts it, and prints
+   the raw value once. Built into `Dockerfile.combined` alongside
+   `api`/`worker`/`migrate` but never invoked automatically — meant to
+   be run once by hand via Railway's Console tab
+   (`./bootstraptoken`) against the deployed container.
+
+Also confirmed, before any of the above: this port's
+`internal/config/config.go` expects the EXACT SAME environment
+variable names the TS backend already has configured on Railway's
+existing `api` service (`DATABASE_URL`, `REDIS_URL`,
+`HATCHET_CLIENT_TOKEN`, `HATCHET_CLIENT_TLS_STRATEGY`, `STRIPE_MODE`,
+`STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`,
+`STRIPE_API_VERSION`, `API_PORT`, `NODE_ENV`) — every one of Go's
+*required* config fields is already set, checked by reading each
+variable's existing value's reference target (without revealing any
+secret value — Railway's variable "Edit" view shows the reference
+template, e.g. `${{Postgres.DATABASE_URL}}`, not the resolved secret)
+rather than assuming. No environment variable changes were needed to
+swap the `api` service's source from `backend` (the TS directory) to
+`backend-go`; only Root Directory and Dockerfile Path change.

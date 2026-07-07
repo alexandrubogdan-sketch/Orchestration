@@ -1,0 +1,34 @@
+# Worker process build — see deploy/Dockerfile.api's top comment for
+# the full rationale shared by both (never built, go.mod version pins,
+# GOTOOLCHAIN=auto, why `go mod tidy` runs at build time). This file
+# only documents what's different for the worker.
+FROM golang:1.24-bookworm AS build
+WORKDIR /src
+
+COPY go.mod ./
+COPY . .
+RUN go mod tidy
+
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/worker ./cmd/worker
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/migrate ./cmd/migrate
+
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY --from=build /out/worker ./worker
+COPY --from=build /out/migrate ./migrate
+COPY db/migrations ./db/migrations
+
+EXPOSE 9464
+# Also runs migrate on boot, same as Dockerfile.api — deliberately
+# redundant (idempotent: migrate.ErrNoChange is treated as success)
+# rather than only running it from the API service, because
+# golang-migrate's Postgres driver takes a session-level advisory lock
+# during Up()/Down() (documented driver behavior, not something this
+# port added), so two containers racing to migrate on a fresh deploy
+# serialize safely instead of corrupting the schema_migrations table —
+# "every boot is self-healing" per Dockerfile.api's comment, for
+# EVERY process that boots, not just the first one that happens to
+# win a race.
+CMD ["sh", "-c", "./migrate up && exec ./worker"]

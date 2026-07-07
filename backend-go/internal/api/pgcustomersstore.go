@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -67,6 +68,67 @@ func (s PgxCustomersStore) ListActivePaymentMethods(ctx context.Context, custome
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	return out, nil
+}
+
+// customerColumns is the exact column list every customers SELECT in
+// this file uses, matching pgpaymentsstore.go's paymentColumns
+// convention so a single scan helper can be shared.
+const customerColumns = `id, merchant_entity_id, external_ref, email, created_at, updated_at`
+
+func scanCustomerRow(row pgx.Row) (CustomerRow, error) {
+	var c CustomerRow
+	err := row.Scan(&c.ID, &c.MerchantEntityID, &c.ExternalRef, &c.Email, &c.CreatedAt, &c.UpdatedAt)
+	if err != nil {
+		return CustomerRow{}, err
+	}
+	return c, nil
+}
+
+// ListCustomers implements CustomersStore.ListCustomers — added
+// 2026-07-07 alongside GET /v1/customers (see customers.go's top doc
+// comment for why this route didn't exist before). Scoped by
+// merchant_entity_id, exactly matching this file's own FindCustomer
+// above (customers have no product_id column at all — see the
+// core-schema migration). Keyset-paginated by id, mirroring
+// PgxPaymentsStore.ListPayments (pgpaymentsstore.go) as closely as the
+// narrower query surface allows: no filters exist yet beyond
+// merchant scoping + cursor, since there is no established TS source
+// to port filter behavior from for this endpoint (unlike ListPayments,
+// which is a 1:1 port).
+func (s PgxCustomersStore) ListCustomers(ctx context.Context, merchantEntityID string, query ListCustomersQuery) ([]CustomerRow, error) {
+	sql := `SELECT ` + customerColumns + ` FROM customers WHERE merchant_entity_id = $1`
+	args := []any{merchantEntityID}
+
+	if query.Cursor != nil {
+		args = append(args, *query.Cursor)
+		sql += fmt.Sprintf(" AND id < $%d", len(args))
+	}
+
+	limit := query.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	args = append(args, limit+1)
+	sql += fmt.Sprintf(" ORDER BY id DESC LIMIT $%d", len(args))
+
+	rows, err := s.Pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("api: query customers list: %w", err)
+	}
+	defer rows.Close()
+
+	var out []CustomerRow
+	for rows.Next() {
+		c, err := scanCustomerRow(rows)
+		if err != nil {
+			return nil, fmt.Errorf("api: scan customers list row: %w", err)
+		}
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("api: iterate customers list rows: %w", err)
 	}
 	return out, nil
 }
