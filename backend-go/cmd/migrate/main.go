@@ -18,9 +18,23 @@
 //
 // Usage:
 //
-//	migrate up          # apply every pending migration (default if no arg given)
-//	migrate down 1       # roll back exactly N steps
-//	migrate version      # print the current schema version
+//	migrate up            # apply every pending migration (default if no arg given)
+//	migrate down 1        # roll back exactly N steps
+//	migrate version       # print the current schema version
+//	migrate force VERSION # set the recorded version without running any SQL
+//
+// force exists for exactly one situation (hit for real on 2026-07-08,
+// this Go port's first deploy against the Railway Postgres the TS
+// backend had already been migrating against for months via
+// node-pg-migrate): `up` tried to run this port's very first migration
+// from a clean (version 0) state and failed with "relation
+// merchant_entities already exists", because every table this port's
+// migrations create already existed, created by the TS backend's own
+// equivalent migrations. golang-migrate has no "the schema already
+// matches, just start tracking from here" mode built into Up/Down —
+// Force(version) is its documented mechanism for exactly that: record
+// a version as applied (and clear the dirty flag Up() leaves behind
+// after a failed migration) without executing any migration's SQL.
 //
 // Reads DATABASE_URL directly from the environment rather than going
 // through internal/config.Load(), deliberately: config.Load()
@@ -91,6 +105,21 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Printf("version=%d dirty=%v\n", version, dirty)
+	case "force":
+		if len(args) < 2 {
+			fmt.Fprintln(os.Stderr, "migrate: force requires a version argument, e.g. migrate force 1735777400000")
+			os.Exit(1)
+		}
+		var version int
+		if _, err := fmt.Sscanf(args[1], "%d", &version); err != nil {
+			fmt.Fprintf(os.Stderr, "migrate: invalid version %q: %v\n", args[1], err)
+			os.Exit(1)
+		}
+		if err := m.Force(version); err != nil {
+			fmt.Fprintf(os.Stderr, "migrate: force failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("migrate: forced to version=%d (dirty flag cleared, no SQL executed)\n", version)
 	default:
 		fmt.Fprintf(os.Stderr, "migrate: unknown command %q (want up|down|version)\n", command)
 		os.Exit(1)
