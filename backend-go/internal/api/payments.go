@@ -722,7 +722,12 @@ func parseListPaymentsQuery(values map[string][]string) (ListPaymentsQuery, erro
 func handleCapturePayment(deps PaymentsRouteDeps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		handleAttemptAction(w, r, deps, "capture", func(ctx context.Context, deps PaymentsRouteDeps, auth AuthContext, id string, idemKey string) (IdempotentResult, error) {
-			payment, found, err := deps.Store.GetPayment(ctx, id, auth.ProductID)
+			// Payment row itself isn't needed beyond the existence check
+			// below — the actual capture goes through the latest attempt
+			// + PSP adapter, and any state-transition validity is
+			// enforced by the state machine when ApplyCanonicalEvents
+			// applies the resulting events, not here.
+			_, found, err := deps.Store.GetPayment(ctx, id, auth.ProductID)
 			if err != nil {
 				return IdempotentResult{}, err
 			}
@@ -767,7 +772,9 @@ func handleCapturePayment(deps PaymentsRouteDeps) http.HandlerFunc {
 func handleVoidPayment(deps PaymentsRouteDeps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		handleAttemptAction(w, r, deps, "void", func(ctx context.Context, deps PaymentsRouteDeps, auth AuthContext, id string, idemKey string) (IdempotentResult, error) {
-			payment, found, err := deps.Store.GetPayment(ctx, id, auth.ProductID)
+			// Same rationale as handleCapturePayment above: the payment
+			// row is only needed for the existence check here.
+			_, found, err := deps.Store.GetPayment(ctx, id, auth.ProductID)
 			if err != nil {
 				return IdempotentResult{}, err
 			}
