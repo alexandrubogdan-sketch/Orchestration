@@ -84,18 +84,23 @@ type Tasks struct {
 	OutboundWebhookDelivery *hatchet.StandaloneTask
 }
 
-// All returns every task in t as a slice, for
-// hatchet.WithWorkflows(tasks.All()...) — see cmd/worker/main.go's own
-// call site. WithWorkflows's variadic parameter type is asserted from
-// the Hatchet Go migration guide's own example
-// (hatchet.WithWorkflows(workflow) accepting a *hatchet.StandaloneTask
-// value directly) to accept *hatchet.StandaloneTask directly, not
-// through an intermediate named interface type this port could not
-// verify the existence/spelling of from the sandbox this was written
-// in — see MIGRATION_NOTES.md's Phase 7 self-critical list for this
-// exact uncertainty flagged explicitly.
-func (t Tasks) All() []*hatchet.StandaloneTask {
-	return []*hatchet.StandaloneTask{
+// All returns every task in t as a []hatchet.WorkflowBase, ready to
+// pass straight into hatchet.WithWorkflows(tasks.All()...) — see
+// cmd/worker/main.go's own call site.
+//
+// CORRECTED (2026-07-08, against the first real build's own compile
+// error): WithWorkflows(workflows ...WorkflowBase) takes the
+// WorkflowBase interface (GetName/OnFailure/Dump), confirmed directly
+// from sdks/go/worker.go's own source. *hatchet.StandaloneTask
+// implements it (client.go defines all three methods on it), but Go
+// does not implicitly convert []*StandaloneTask to []WorkflowBase even
+// though the element type satisfies the interface — this method
+// returns the already-converted slice so the call site doesn't need
+// its own conversion loop. Resolves the exact uncertainty this file's
+// previous comment (and MIGRATION_NOTES.md's Phase 7 self-critical
+// list) flagged about WithWorkflows's real parameter type.
+func (t Tasks) All() []hatchet.WorkflowBase {
+	return []hatchet.WorkflowBase{
 		t.OutboxRelay,
 		t.WebhookNormalize,
 		t.WebhookApply,

@@ -215,15 +215,30 @@ func main() {
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, syscall.SIGTERM, syscall.SIGINT)
 
+	// CORRECTED (2026-07-08, against the first real build's own compile
+	// error): *hatchet.Worker has no Stop() method — confirmed from
+	// sdks/go/client.go's own source, which only exposes Start() (returns
+	// a cleanup func) and StartBlocking(ctx) (blocks until ctx.Done(),
+	// then runs that same cleanup internally before returning). The
+	// correct shutdown shape is therefore to cancel the context passed to
+	// StartBlocking and wait for it to return, not to call a separate
+	// Stop method from outside.
+	workerCtx, cancelWorker := context.WithCancel(context.Background())
+	defer cancelWorker()
+
 	workerErrCh := make(chan error, 1)
 	go func() {
 		logger.Info("worker starting, awaiting tasks")
-		workerErrCh <- hatchetWorker.StartBlocking(context.Background())
+		workerErrCh <- hatchetWorker.StartBlocking(workerCtx)
 	}()
 
 	select {
 	case sig := <-shutdown:
 		logger.Info("shutting down worker", "signal", sig.String())
+		cancelWorker()
+		if err := <-workerErrCh; err != nil {
+			logger.Error("error stopping hatchet worker", "error", err)
+		}
 	case err := <-workerErrCh:
 		if err != nil {
 			logger.Error("hatchet worker exited with error", "error", err)
@@ -232,9 +247,6 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := hatchetWorker.Stop(); err != nil {
-		logger.Error("error stopping hatchet worker", "error", err)
-	}
 	if err := metricsServer.Shutdown(shutdownCtx); err != nil {
 		logger.Error("error during metrics server graceful shutdown", "error", err)
 	}
