@@ -30,6 +30,16 @@ export function toDunningLadderHours(ladder: DunningLadderStep[]): number[] {
   return ladder.map((step) => step.waitHours);
 }
 
+/** The inverse of toDunningLadderHours — rehydrates the client-side
+ *  editable ladder (stable ids for list operations) from the plain
+ *  `number[]` a real GET/PUT /v1/retry-settings response actually
+ *  carries. Added 2026-07-08 alongside setPolicyFromServer below, once
+ *  app/workflows/retries/page.tsx started calling the real backend in
+ *  Live mode instead of only ever reading this store's local defaults. */
+function fromDunningLadderHours(hours: number[]): DunningLadderStep[] {
+  return hours.map((waitHours) => ({ id: randomStepId(), waitHours }));
+}
+
 interface RetrySettingsState {
   policy: RetryPolicy;
 
@@ -44,20 +54,32 @@ interface RetrySettingsState {
   setMinSpacingSeconds: (value: number) => void;
 
   /**
-   * Persists the current policy — for now, that just means "already is
-   * the current Zustand state," so this is a no-op today. It exists as
-   * its own action (rather than callers relying on the setters above
-   * having already committed) so wiring in a real backend later is a
-   * ONE-LINE change: replace this function's body with
-   * `await putRetrySettings({ dunningLadderHours: toDunningLadderHours(get().policy.ladder), maxAttemptsPerPayment: get().policy.maxAttemptsPerPayment, minSpacingSeconds: get().policy.minSpacingSeconds })`
-   * (a fetch()/ky call to PUT /v1/retry-settings, matching
-   * payment-orchestrator-go/internal/api/retry_settings.go's
-   * UpsertRetrySettingsRequest shape exactly) — every field this action
-   * would need to send already exists on `policy` in the right shape.
-   * See app/workflows/retries/page.tsx's "Save policy" button, the one
-   * call site.
+   * Persists the current policy — for Sandbox mode this just means
+   * "already is the current Zustand state," so this remains a no-op,
+   * exactly as it always has been. This action's own doc comment used
+   * to describe a real `PUT /v1/retry-settings` call as a hypothetical
+   * one-line change to make here; as of 2026-07-08 that wiring exists,
+   * but lives in app/workflows/retries/page.tsx's handleSave (via
+   * lib/live-api.ts's putLiveRetrySettings), not in this action —
+   * Live mode's save button calls that instead of this one. This stays
+   * a plain local no-op so Sandbox's "Save policy" button keeps doing
+   * exactly what it always did.
    */
   savePolicy: () => void;
+
+  /** Rehydrates `policy` from a real GET/PUT /v1/retry-settings
+   *  response (lib/live-api.ts's LiveRetrySettings) — the Live-mode
+   *  counterpart to resetToDefaults below. Called from
+   *  app/workflows/retries/page.tsx after both the initial Live-mode
+   *  GET and every successful PUT, so the ladder/policy shown always
+   *  matches what the backend actually has stored (rather than
+   *  optimistically trusting the client's pre-save state, which could
+   *  drift from a normalized/validated server response). */
+  setPolicyFromServer: (dto: {
+    dunningLadderHours: number[];
+    maxAttemptsPerPayment: number;
+    minSpacingSeconds: number;
+  }) => void;
 
   resetToDefaults: () => void;
 }
@@ -107,12 +129,19 @@ export const useRetrySettingsStore = create<RetrySettingsState>((set) => ({
   setMinSpacingSeconds: (value) =>
     set((state) => ({ policy: { ...state.policy, minSpacingSeconds: value } })),
 
-  // See this action's own doc comment above (on the interface) for
-  // exactly what a real PUT /v1/retry-settings wiring would replace
-  // this body with — intentionally a no-op today since this frontend
-  // never calls a real backend (see app/workflows/retries/page.tsx's
-  // top doc comment).
+  // See this action's own doc comment above (on the interface) — a
+  // deliberate, permanent no-op for Sandbox mode. Live mode's save
+  // button does not call this; see app/workflows/retries/page.tsx.
   savePolicy: () => {},
+
+  setPolicyFromServer: (dto) =>
+    set({
+      policy: {
+        ladder: fromDunningLadderHours(dto.dunningLadderHours),
+        maxAttemptsPerPayment: dto.maxAttemptsPerPayment,
+        minSpacingSeconds: dto.minSpacingSeconds,
+      },
+    }),
 
   resetToDefaults: () => set({ policy: defaultRetryPolicy() }),
 }));

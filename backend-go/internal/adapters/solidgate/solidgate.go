@@ -175,6 +175,14 @@ func (a *Adapter) CreatePayment(ctx context.Context, input adapters.CreatePaymen
 	statementDescriptor := fmt.Sprintf("Payment %s", input.PaymentID)
 	if input.StatementDescriptor != nil {
 		statementDescriptor = *input.StatementDescriptor
+	} else if input.StatementDescriptorSuffix != nil {
+		// Solidgate's /charge has a single descriptor field, not
+		// Stripe's separate static-prefix/dynamic-suffix pair — see
+		// adapters.CreatePaymentInput's doc comment. Falling back to
+		// the suffix here means a psp_account's configured suffix
+		// still takes effect even when routing lands on a Solidgate
+		// account rather than Stripe.
+		statementDescriptor = *input.StatementDescriptorSuffix
 	}
 
 	paymentType := "1-click"

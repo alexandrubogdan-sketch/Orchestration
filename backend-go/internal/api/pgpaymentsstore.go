@@ -193,9 +193,9 @@ func (s PgxPaymentsStore) CreatePayment(ctx context.Context, input CreatePayment
 func (s PgxPaymentsStore) GetPspAccount(ctx context.Context, id string) (PspAccountRow, error) {
 	var row PspAccountRow
 	err := s.Pool.QueryRow(ctx,
-		`SELECT id, psp, mode, secret_ref FROM psp_accounts WHERE id = $1`,
+		`SELECT id, psp, mode, secret_ref, statement_descriptor_suffix FROM psp_accounts WHERE id = $1`,
 		id,
-	).Scan(&row.ID, &row.PSP, &row.Mode, &row.SecretRef)
+	).Scan(&row.ID, &row.PSP, &row.Mode, &row.SecretRef, &row.StatementDescriptorSuffix)
 	if err != nil {
 		return PspAccountRow{}, fmt.Errorf("api: query psp_accounts %s: %w", id, err)
 	}

@@ -201,6 +201,13 @@ type PspAccountRow struct {
 	PSP       string
 	Mode      string
 	SecretRef string
+	// StatementDescriptorSuffix: 2026-07-08, multi-integration
+	// descriptors (see db/migrations/…_psp-account-statement-descriptor
+	// and adapters.CreatePaymentInput's own doc comment). Nil when this
+	// account has no override configured — createPaymentHandler passes
+	// it straight through to adapters.CreatePaymentInput unconditionally
+	// so "no override" and "adapter ignores it" are the same nil case.
+	StatementDescriptorSuffix *string
 }
 
 func (p PspAccountRow) toRegistryAccount() registry.PspAccount {
@@ -533,6 +540,13 @@ func createPaymentHandler(
 			IdempotencyKey:   pspIdempotencyKey,
 			CaptureMethod:    captureMethod,
 			CustomerEmail:    customerEmail,
+			// 2026-07-08: the routed-to psp_account's own configured
+			// suffix (nil if none set) — see PspAccountRow's doc
+			// comment. This is what makes "multiple descriptors" work:
+			// two psp_accounts against the same PSP type route through
+			// here with two different pspAccount.StatementDescriptorSuffix
+			// values.
+			StatementDescriptorSuffix: pspAccount.StatementDescriptorSuffix,
 		})
 		if createErr != nil {
 			_ = recordBreakerFailure(ctx, deps, pspAccount.ID)

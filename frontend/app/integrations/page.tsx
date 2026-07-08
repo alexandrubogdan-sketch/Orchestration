@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Trash2, Zap } from "lucide-react";
+import { Pencil, Plus, Trash2, Zap } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,10 +21,12 @@ import {
 export default function IntegrationsPage() {
   const integrations = useIntegrationStore((s) => s.integrations);
   const connect = useIntegrationStore((s) => s.connect);
+  const updateIntegration = useIntegrationStore((s) => s.updateIntegration);
   const disconnect = useIntegrationStore((s) => s.disconnect);
   const addIntegration = useIntegrationStore((s) => s.addIntegration);
   const removeIntegration = useIntegrationStore((s) => s.removeIntegration);
   const [connecting, setConnecting] = useState<Integration | null>(null);
+  const [editing, setEditing] = useState<Integration | null>(null);
   const [addingOpen, setAddingOpen] = useState(false);
 
   return (
@@ -95,9 +97,14 @@ export default function IntegrationsPage() {
 
                 <div className="flex gap-2">
                   {integration.status === "connected" ? (
-                    <Button size="sm" variant="outline" onClick={() => disconnect(integration.id)}>
-                      Disconnect
-                    </Button>
+                    <>
+                      <Button size="sm" variant="outline" onClick={() => setEditing(integration)}>
+                        <Pencil className="h-3.5 w-3.5" /> Edit
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => disconnect(integration.id)}>
+                        Disconnect
+                      </Button>
+                    </>
                   ) : (
                     <Button size="sm" onClick={() => setConnecting(integration)}>
                       Connect
@@ -113,10 +120,33 @@ export default function IntegrationsPage() {
       {connecting ? (
         <ConnectDialog
           integration={connecting}
-          onConnect={(mode: IntegrationMode, credentials: Record<string, string>) =>
-            connect(connecting.id, connecting.processor, mode, credentials)
+          onConnect={(mode: IntegrationMode, credentials: Record<string, string>, descriptor: string) =>
+            connect(
+              connecting.id,
+              connecting.processor,
+              mode,
+              credentials,
+              descriptor ? [descriptor] : undefined,
+            )
           }
           onClose={() => setConnecting(null)}
+        />
+      ) : null}
+
+      {editing ? (
+        <ConnectDialog
+          integration={editing}
+          isEditing
+          onConnect={(mode: IntegrationMode, credentials: Record<string, string>, descriptor: string) =>
+            updateIntegration(
+              editing.id,
+              editing.processor,
+              mode,
+              credentials,
+              descriptor ? [descriptor] : undefined,
+            )
+          }
+          onClose={() => setEditing(null)}
         />
       ) : null}
 

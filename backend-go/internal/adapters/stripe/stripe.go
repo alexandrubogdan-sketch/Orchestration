@@ -132,6 +132,15 @@ func (a *Adapter) CreatePayment(ctx context.Context, input adapters.CreatePaymen
 	if input.StatementDescriptor != nil {
 		params.StatementDescriptor = stripesdk.String(*input.StatementDescriptor)
 	}
+	// 2026-07-08, multi-integration descriptors: StatementDescriptorSuffix
+	// is Stripe's dynamic per-charge suffix (card payments only),
+	// concatenated onto the static prefix already configured in the
+	// Dashboard for the connected Stripe account — see
+	// adapters.CreatePaymentInput's own doc comment for why this is a
+	// separate field from StatementDescriptor rather than reusing it.
+	if input.StatementDescriptorSuffix != nil {
+		params.StatementDescriptorSuffix = stripesdk.String(*input.StatementDescriptorSuffix)
+	}
 	if requestThreeDSecure != "" {
 		params.PaymentMethodOptions = &stripesdk.PaymentIntentPaymentMethodOptionsParams{
 			Card: &stripesdk.PaymentIntentPaymentMethodOptionsCardParams{

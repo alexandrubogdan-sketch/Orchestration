@@ -122,6 +122,19 @@ type CreatePaymentInput struct {
 	IdempotencyKey      string
 	CaptureMethod       CaptureMethod
 	StatementDescriptor *string
+	// StatementDescriptorSuffix: 2026-07-08, multi-integration
+	// descriptors — Stripe's dynamic per-charge suffix, appended to
+	// whatever static prefix is configured on the connected Stripe
+	// account itself (docs.stripe.com/get-started/account/
+	// statement-descriptors). Lets two psp_accounts against the same
+	// Stripe account type (e.g. two brands/business lines routed
+	// through separate integrations) show up differently on a
+	// cardholder's statement, without needing separate Stripe
+	// accounts. Card charges only — see stripe.go's CreatePayment for
+	// where this is actually set on the PaymentIntent; adapters that
+	// don't support a separate suffix concept (Solidgate, PayPal) may
+	// fall back to treating this the same as StatementDescriptor.
+	StatementDescriptorSuffix *string
 	// CustomerEmail: Milestone 8, T8.5/ADR-0011 — added for Solidgate,
 	// whose POST /charge requires a customer email (Stripe does not).
 	// Optional so every existing adapter/call site is unaffected;
