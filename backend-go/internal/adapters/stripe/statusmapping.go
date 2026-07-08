@@ -63,7 +63,7 @@ func extractRawDeclineCode(lastPaymentError *stripesdk.Error) *string {
 		return nil
 	}
 	if lastPaymentError.DeclineCode != "" {
-		code := lastPaymentError.DeclineCode
+		code := string(lastPaymentError.DeclineCode) // stripe.DeclineCode is a named string type; converts cleanly.
 		return &code
 	}
 	if lastPaymentError.Code != "" {

@@ -322,8 +322,13 @@ func (a *Adapter) ListSettlements(ctx context.Context, sinceISO string) ([]adapt
 		return nil, err
 	}
 	params := &stripesdk.BalanceTransactionListParams{
-		Created: &stripesdk.RangeQueryParams{GreaterThanOrEqual: createdGte},
-		Expand:  []*string{stripesdk.String("data.source")},
+		// stripe-go v81's BalanceTransactionListParams has both a plain
+		// `Created *int64` (exact match) and `CreatedRange
+		// *RangeQueryParams` (range query) field for the same "created"
+		// form key — range queries (GreaterThanOrEqual etc.) go on
+		// CreatedRange, not Created.
+		CreatedRange: &stripesdk.RangeQueryParams{GreaterThanOrEqual: createdGte},
+		Expand:       []*string{stripesdk.String("data.source")},
 	}
 	params.Limit = stripesdk.Int64(100)
 	params.Context = ctx
@@ -349,7 +354,9 @@ func (a *Adapter) ListPayouts(ctx context.Context, sinceISO string) ([]adapters.
 		return nil, err
 	}
 	params := &stripesdk.PayoutListParams{
-		Created: &stripesdk.RangeQueryParams{GreaterThanOrEqual: createdGte},
+		// Same Created (*int64, exact) vs CreatedRange (*RangeQueryParams,
+		// range) split as BalanceTransactionListParams above.
+		CreatedRange: &stripesdk.RangeQueryParams{GreaterThanOrEqual: createdGte},
 	}
 	params.Limit = stripesdk.Int64(100)
 	params.Context = ctx
@@ -456,7 +463,7 @@ func (a *Adapter) handleConfirmError(err error) (adapters.AttemptResult, error) 
 		}
 		var rawCode string
 		if stripeErr.DeclineCode != "" {
-			rawCode = stripeErr.DeclineCode
+			rawCode = string(stripeErr.DeclineCode) // stripe.DeclineCode is a named string type; converts cleanly.
 		} else {
 			rawCode = string(stripeErr.Code)
 		}
