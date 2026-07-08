@@ -45,6 +45,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/hatchet-dev/hatchet/pkg/client/types"
 	hatchet "github.com/hatchet-dev/hatchet/sdks/go"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -382,6 +383,11 @@ func newWebhookNormalizeTask(client *hatchet.Client, deps Deps) *hatchet.Standal
 
 // ---- webhook.apply ----
 
+// webhookApplyMaxConcurrentRuns backs the MaxRuns: 1 concurrency limit
+// below. types.Concurrency.MaxRuns is *int32, so this needs to be an
+// addressable variable rather than an inline untyped constant.
+var webhookApplyMaxConcurrentRuns int32 = 1
+
 func webhookApplyHandler(deps Deps) func(hatchet.Context, WebhookApplyInput) (WebhookApplyResult, error) {
 	return func(ctx hatchet.Context, input WebhookApplyInput) (WebhookApplyResult, error) {
 		if err := webhooks.Apply(ctx, deps.Webhooks, input.InboxID, input.PaymentID, nil); err != nil {
@@ -405,9 +411,19 @@ func newWebhookApplyTask(client *hatchet.Client, deps Deps) *hatchet.StandaloneT
 		// currently only) serialization mechanism — this concurrency key
 		// is defense-in-depth/a throughput optimization on top of it, not
 		// a substitute for it, exactly as that doc comment recommends.
-		hatchet.WithConcurrency(hatchet.Concurrency{
+		// hatchet.WithConcurrency takes ...*types.Concurrency
+		// (github.com/hatchet-dev/hatchet/pkg/client/types) -- there is
+		// no hatchet.Concurrency alias in the sdks/go package itself;
+		// confirmed against hatchet.go's own package doc example, which
+		// shows types.Concurrency{Expression, MaxRuns} used the same way
+		// (that example calls WithWorkflowConcurrency, the workflow-level
+		// sibling, which takes the non-pointer variant; the task-level
+		// WithConcurrency used here takes pointers). types.Concurrency's
+		// own MaxRuns field is *int32 (confirmed via pkg.go.dev), not a
+		// plain int, hence the local var-then-address-of below.
+		hatchet.WithConcurrency(&types.Concurrency{
 			Expression: "input.paymentId",
-			MaxRuns:    1,
+			MaxRuns:    &webhookApplyMaxConcurrentRuns,
 		}),
 	)
 }
