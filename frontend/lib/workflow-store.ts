@@ -62,6 +62,13 @@ interface WorkflowStoreState {
    *  as opposed to removeNode's edge cleanup which only ever happens as a
    *  side effect of deleting a whole node. */
   removeEdge: (workflowId: string, edgeId: string) => void;
+  /** Manually drawing a connection between two already-placed nodes
+   *  (React Flow's own drag-a-handle-to-a-handle gesture) — distinct
+   *  from insertNode, which always creates a brand-new node. Replaces
+   *  any existing edge already leaving this exact (source, sourceHandle)
+   *  pair, since each handle only ever represents one outgoing path
+   *  (matching the hover "+"'s own isConnected gating). */
+  connectNodes: (workflowId: string, source: string, sourceHandle: string | undefined, target: string) => void;
 
   updateAction: (workflowId: string, nodeId: string, patch: Partial<WorkflowAction>) => void;
 
@@ -260,6 +267,21 @@ export const useWorkflowStore = create<WorkflowStoreState>((set) => ({
         edges: w.edges.filter((e) => e.id !== edgeId),
         updatedAt: new Date().toISOString(),
       })),
+    })),
+
+  connectNodes: (workflowId, source, sourceHandle, target) =>
+    set((state) => ({
+      workflows: mapWorkflows(state.workflows, workflowId, (w) => {
+        if (source === target) return w; // no self-loops
+        const withoutStaleEdge = w.edges.filter(
+          (e) => !(e.source === source && (e.sourceHandle ?? undefined) === (sourceHandle ?? undefined)),
+        );
+        return {
+          ...w,
+          edges: [...withoutStaleEdge, { id: randomId("edge"), source, sourceHandle, target }],
+          updatedAt: new Date().toISOString(),
+        };
+      }),
     })),
 
   updateAction: (workflowId, nodeId, patch) =>

@@ -74,17 +74,11 @@ const ELK_LAYOUT_OPTIONS = {
   "elk.spacing.nodeNode": "60",
 };
 
-export async function buildWorkflowGraph(
-  workflow: Workflow,
-): Promise<{ nodes: Node[]; edges: Edge[] }> {
-  const nodes: Node[] = workflow.nodes.map((node) => ({
-    id: node.id,
-    type: node.kind,
-    position: { x: 0, y: 0 },
-    data: { workflowId: workflow.id, node },
-  }));
-
-  const edges: Edge[] = workflow.edges.map((edge) => ({
+/** Shared by the elk-laid-out path below and canvas.tsx's own
+ *  no-relayout sync path, so both ever describe "workflowEdge" the same
+ *  way in exactly one place. */
+export function buildEdges(workflow: Workflow): Edge[] {
+  return workflow.edges.map((edge) => ({
     id: edge.id,
     source: edge.source,
     sourceHandle: edge.sourceHandle,
@@ -98,6 +92,19 @@ export async function buildWorkflowGraph(
     animated: true,
     data: { workflowId: workflow.id },
   }));
+}
+
+export async function buildWorkflowGraph(
+  workflow: Workflow,
+): Promise<{ nodes: Node[]; edges: Edge[] }> {
+  const nodes: Node[] = workflow.nodes.map((node) => ({
+    id: node.id,
+    type: node.kind,
+    position: { x: 0, y: 0 },
+    data: { workflowId: workflow.id, node },
+  }));
+
+  const edges: Edge[] = buildEdges(workflow);
 
   const elkGraph = {
     id: "root",
