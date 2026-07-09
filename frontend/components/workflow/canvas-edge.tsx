@@ -60,7 +60,12 @@ export function CanvasEdgeView({
         fill="none"
         stroke="transparent"
         strokeWidth={16}
-        className="cursor-pointer"
+        // React Flow's own stylesheet sets `pointer-events: none` on
+        // edge paths by default (edges aren't interactive unless opted
+        // in) — a stylesheet rule beats a bare className, so this has
+        // to be an inline style to actually win and make the wide hit
+        // area hoverable/clickable.
+        style={{ pointerEvents: "stroke", cursor: "pointer" }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         onClick={handleDelete}
