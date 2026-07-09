@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from "@xyflow/react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useWorkflowStore } from "@/lib/workflow-store";
 
-export type WorkflowEdgeData = { workflowId: string };
+export type WorkflowEdgeData = { workflowId: string; highlighted?: boolean; dimmed?: boolean };
 
 /**
  * Custom edge for connections between two already-placed nodes — per the
@@ -18,6 +18,15 @@ export type WorkflowEdgeData = { workflowId: string };
  * insert-into-edge affordance here, unlike the real client's always-on
  * "+" (see canvas-edge.component.tsx), since the user asked for a single
  * hover-gated "×" instead.
+ *
+ * Clicking the connection itself (anywhere along the wide invisible hit
+ * path below) no longer deletes it — that was the bug: a plain click
+ * used to remove the edge outright, with no way to just select it.
+ * Deletion is now only ever triggered by the small hover "×" button.
+ * A plain click instead bubbles up to canvas.tsx's onEdgeClick, which
+ * highlights this edge plus everything reachable downstream from it
+ * (highlighted/dimmed flags below, computed there and threaded through
+ * this edge's `data`).
  */
 export function CanvasEdgeView({
   id,
@@ -33,7 +42,10 @@ export function CanvasEdgeView({
 }: EdgeProps) {
   const [hovered, setHovered] = useState(false);
   const removeEdge = useWorkflowStore((s) => s.removeEdge);
-  const workflowId = (data as WorkflowEdgeData | undefined)?.workflowId;
+  const edgeData = data as WorkflowEdgeData | undefined;
+  const workflowId = edgeData?.workflowId;
+  const highlighted = edgeData?.highlighted ?? false;
+  const dimmed = edgeData?.dimmed ?? false;
 
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
@@ -44,17 +56,28 @@ export function CanvasEdgeView({
     targetPosition,
   });
 
-  function handleDelete() {
+  function handleDelete(event: MouseEvent<HTMLButtonElement>) {
+    // Keeps this click from also reaching canvas.tsx's onEdgeClick (which
+    // would otherwise briefly re-select an edge that's about to disappear).
+    event.stopPropagation();
     if (workflowId) removeEdge(workflowId, id);
   }
 
+  const pathStyle = {
+    ...style,
+    ...(highlighted ? { stroke: "#3b82f6", strokeWidth: 2.5 } : null),
+    ...(dimmed ? { opacity: 0.2 } : null),
+  };
+
   return (
     <>
-      <BaseEdge id={id} path={edgePath} style={style} markerEnd={markerEnd} />
+      <BaseEdge id={id} path={edgePath} style={pathStyle} markerEnd={markerEnd} />
 
       {/* Wider invisible stroke so hovering anywhere near the visible
-          line (not just its exact 1-2px path) reveals the delete button —
-          the visible line alone is too thin a target to hover reliably. */}
+          line (not just its exact 1-2px path) reveals the delete button,
+          and clicking anywhere along it selects the connection (handled
+          by canvas.tsx's onEdgeClick, which fires from this element
+          bubbling up — no onClick handler here anymore). */}
       <path
         d={edgePath}
         fill="none"
@@ -68,7 +91,6 @@ export function CanvasEdgeView({
         style={{ pointerEvents: "stroke", cursor: "pointer" }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        onClick={handleDelete}
       />
 
       {hovered && workflowId ? (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import { AlignCenterHorizontal, Maximize2, Minimize2 } from "lucide-react";
 import {
@@ -69,6 +69,36 @@ function WorkflowCanvasInner({ workflow }: { workflow: Workflow }) {
   // elk — if a newer call starts before an older one resolves, the
   // older one's result is discarded instead of clobbering a newer one.
   const layoutGenerationRef = useRef(0);
+  // Which connection the user clicked, if any — drives the downstream
+  // path highlight below. Cleared on pane click, re-click of the same
+  // edge, or (implicitly, since the lookup below just comes up empty)
+  // if the edge it pointed at no longer exists (deleted).
+  const [focusedEdgeId, setFocusedEdgeId] = useState<string | null>(null);
+
+  // Everything reachable "moving down" from the clicked edge — its own
+  // source/target plus every node/edge you'd hit by following outgoing
+  // edges from there, branch after branch, all the way to whatever the
+  // path terminates in. Nothing above the clicked edge is included, per
+  // spec ("highlight the whole way moving down").
+  const highlighted = useMemo(() => {
+    const clicked = focusedEdgeId ? workflow.edges.find((e) => e.id === focusedEdgeId) : undefined;
+    if (!clicked) return null;
+    const nodeIds = new Set<string>([clicked.source, clicked.target]);
+    const edgeIds = new Set<string>([clicked.id]);
+    const queue = [clicked.target];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      for (const edge of workflow.edges) {
+        if (edge.source !== current || edgeIds.has(edge.id)) continue;
+        edgeIds.add(edge.id);
+        if (!nodeIds.has(edge.target)) {
+          nodeIds.add(edge.target);
+          queue.push(edge.target);
+        }
+      }
+    }
+    return { nodeIds, edgeIds };
+  }, [focusedEdgeId, workflow.edges]);
 
   // Full ELK auto-layout pass — the ONLY two things allowed to trigger
   // this: the very first time a given workflow is opened (positionsRef
@@ -150,6 +180,25 @@ function WorkflowCanvasInner({ workflow }: { workflow: Workflow }) {
     }
   }, [workflow, runElkLayout, syncGraphWithoutLayout]);
 
+  // Dim everything except the focused connection's downstream path,
+  // rather than mutating the real nodes/edges state — that state is the
+  // ELK/sync source of truth and must stay untouched by a purely visual
+  // selection.
+  const displayNodes = useMemo(() => {
+    if (!highlighted) return nodes;
+    return nodes.map((node) =>
+      highlighted.nodeIds.has(node.id) ? node : { ...node, className: cn(node.className, "opacity-30") },
+    );
+  }, [nodes, highlighted]);
+
+  const displayEdges = useMemo(() => {
+    if (!highlighted) return edges;
+    return edges.map((edge) => ({
+      ...edge,
+      data: { ...edge.data, highlighted: highlighted.edgeIds.has(edge.id), dimmed: !highlighted.edgeIds.has(edge.id) },
+    }));
+  }, [edges, highlighted]);
+
   return (
     <div
       onDrop={(event) => {
@@ -174,8 +223,8 @@ function WorkflowCanvasInner({ workflow }: { workflow: Workflow }) {
 
       <div className="relative flex-1">
         <ReactFlow
-          nodes={nodes}
-          edges={edges}
+          nodes={displayNodes}
+          edges={displayEdges}
           nodeTypes={NODE_TYPES}
           edgeTypes={EDGE_TYPES}
           onNodesChange={(changes) => {
@@ -196,6 +245,15 @@ function WorkflowCanvasInner({ workflow }: { workflow: Workflow }) {
             if (!connection.source || !connection.target) return;
             connectNodes(workflow.id, connection.source, connection.sourceHandle ?? undefined, connection.target);
           }}
+          onEdgeClick={(event, edge) => {
+            // Click a connection to trace it: highlights this edge plus
+            // every node/edge reachable downstream, dims the rest. Re-
+            // clicking the same connection (or clicking empty canvas,
+            // via onPaneClick below) clears it.
+            event.stopPropagation();
+            setFocusedEdgeId((current) => (current === edge.id ? null : edge.id));
+          }}
+          onPaneClick={() => setFocusedEdgeId(null)}
           fitView
           proOptions={{ hideAttribution: true }}
           defaultEdgeOptions={{ style: { stroke: "#c7cbd1" } }}
