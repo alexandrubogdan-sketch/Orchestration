@@ -227,6 +227,20 @@ func main() {
 		// rather than introducing a fifth store type.
 		PlansStore: paymentsStore,
 
+		// AI Agents / MCP feature: AgentTokenStore is implemented on the
+		// SAME PgxTokenStore value TokenStore above already uses (see
+		// agent_tokens.go's CreateAgentToken/ListAgentTokens/
+		// RevokeAgentToken on PgxTokenStore in pgstore.go) — one struct
+		// wrapping the one api_tokens table, exposed through two narrow
+		// interfaces (TokenStore for the auth middleware's Lookup,
+		// AgentTokenStore for this resource's CRUD), matching every
+		// other "one struct, several interfaces" store above.
+		AgentTokenStore: api.PgxTokenStore{Pool: pgPool},
+		// SubscriptionsPool backs POST /v1/subscriptions/{id}/cancel —
+		// see subscriptions.go's top doc comment for why this route
+		// takes the raw pool rather than a store interface.
+		SubscriptionsPool: pgPool,
+
 		Registry: pspRegistry,
 		// Breaker: real, working circuit-breaker state against the live
 		// Redis client constructed above (unchanged from Phase 4's

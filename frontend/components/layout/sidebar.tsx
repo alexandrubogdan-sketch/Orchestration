@@ -14,6 +14,7 @@ import {
   BookOpen,
   Users2,
   PanelsTopLeft,
+  Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -30,6 +31,7 @@ const NAV_ITEMS = [
   { href: "/team", label: "Team", icon: Users2 },
   { href: "/workflows", label: "Workflows", icon: Workflow },
   { href: "/risk-monitoring", label: "Risk Monitoring", icon: ShieldAlert },
+  { href: "/agents", label: "AI Agents", icon: Bot },
   { href: "/docs", label: "Docs", icon: BookOpen },
 ];
 

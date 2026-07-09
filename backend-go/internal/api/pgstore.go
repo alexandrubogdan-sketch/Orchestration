@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -52,9 +53,9 @@ type PgxTokenStore struct {
 func (s PgxTokenStore) Lookup(ctx context.Context, tokenHash string) (TokenRow, error) {
 	var row TokenRow
 	err := s.Pool.QueryRow(ctx,
-		`SELECT id, product_id, merchant_entity_id FROM api_tokens WHERE token_hash = $1 AND revoked_at IS NULL`,
+		`SELECT id, product_id, merchant_entity_id, scope FROM api_tokens WHERE token_hash = $1 AND revoked_at IS NULL`,
 		tokenHash,
-	).Scan(&row.ID, &row.ProductID, &row.MerchantEntityID)
+	).Scan(&row.ID, &row.ProductID, &row.MerchantEntityID, &row.Scope)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return TokenRow{}, ErrTokenNotFound
@@ -62,6 +63,71 @@ func (s PgxTokenStore) Lookup(ctx context.Context, tokenHash string) (TokenRow, 
 		return TokenRow{}, err
 	}
 	return row, nil
+}
+
+// CreateAgentToken inserts a new api_tokens row tagged kind='mcp_agent'
+// — see agent_tokens.go's top doc comment for why this reuses the exact
+// same table/hashing scheme as the original bootstrap token rather than
+// a separate one.
+func (s PgxTokenStore) CreateAgentToken(ctx context.Context, input CreateAgentTokenRow) (AgentTokenRow, error) {
+	id, err := uuid.NewV7()
+	if err != nil {
+		return AgentTokenRow{}, err
+	}
+	var row AgentTokenRow
+	err = s.Pool.QueryRow(ctx,
+		`INSERT INTO api_tokens (id, product_id, merchant_entity_id, token_hash, description, scope, kind)
+		 VALUES ($1, $2, $3, $4, $5, $6, 'mcp_agent')
+		 RETURNING id, description, scope, created_at`,
+		id.String(), input.ProductID, input.MerchantEntityID, input.TokenHash, input.Description, input.Scope,
+	).Scan(&row.ID, &row.Description, &row.Scope, &row.CreatedAt)
+	if err != nil {
+		return AgentTokenRow{}, err
+	}
+	return row, nil
+}
+
+// ListAgentTokens returns every non-deleted mcp_agent token for a
+// product, newest first, never including token_hash — the redacted
+// listing agent_tokens.go's handleListAgentTokens serializes as-is.
+func (s PgxTokenStore) ListAgentTokens(ctx context.Context, productID string) ([]AgentTokenRow, error) {
+	rows, err := s.Pool.Query(ctx,
+		`SELECT id, description, scope, created_at, last_used_at, revoked_at
+		 FROM api_tokens WHERE product_id = $1 AND kind = 'mcp_agent'
+		 ORDER BY created_at DESC`,
+		productID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []AgentTokenRow
+	for rows.Next() {
+		var row AgentTokenRow
+		if err := rows.Scan(&row.ID, &row.Description, &row.Scope, &row.CreatedAt, &row.LastUsedAt, &row.RevokedAt); err != nil {
+			return nil, err
+		}
+		result = append(result, row)
+	}
+	return result, rows.Err()
+}
+
+// RevokeAgentToken sets revoked_at, scoped to both the token's id and
+// the caller's own product_id (a caller can never revoke a token
+// belonging to a different product, matching every other resource's
+// ownership scoping in this package) and to kind='mcp_agent' (the
+// original bootstrap token can never be revoked through this route).
+func (s PgxTokenStore) RevokeAgentToken(ctx context.Context, id string, productID string) (bool, error) {
+	tag, err := s.Pool.Exec(ctx,
+		`UPDATE api_tokens SET revoked_at = now(), updated_at = now()
+		 WHERE id = $1 AND product_id = $2 AND kind = 'mcp_agent' AND revoked_at IS NULL`,
+		id, productID,
+	)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 // PgxAuditLogWriter is a real pgx-backed AuditLogWriter.

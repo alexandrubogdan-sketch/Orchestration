@@ -29,3 +29,19 @@ export function getBackendConfig(): BackendConfig | null {
   }
   return { baseUrl: baseUrl.replace(/\/+$/, ""), token };
 }
+
+/** Just the base URL, with no master token attached — the one caller
+ *  that needs this is lib/mcp/backend-client.ts, which calls backend-go
+ *  as the MCP caller's OWN per-agent token (extracted from the incoming
+ *  MCP request's Authorization header), never as the master
+ *  BACKEND_API_TOKEN. Deliberately does not fold into getBackendConfig
+ *  above: that function's whole contract is "baseUrl AND token together,
+ *  or null" for the master-token proxy path, and callers of THIS
+ *  function must never pair it with `token` from getBackendConfig. */
+export function getBackendBaseUrl(): string | null {
+  const baseUrl = process.env.BACKEND_API_BASE_URL;
+  if (!baseUrl) {
+    return null;
+  }
+  return baseUrl.replace(/\/+$/, "");
+}

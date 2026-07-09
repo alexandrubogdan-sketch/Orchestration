@@ -47,15 +47,46 @@ type AuthContext struct {
 	APITokenID       string
 	ProductID        string
 	MerchantEntityID string
+	// Scope is "read_write" (the default for every token created before
+	// this field existed — see the agent-tokens migration) or
+	// "read_only". Added for MCP agent tokens (agent_tokens.go): a
+	// read_only-scoped caller can hit every GET /v1/* route but is
+	// rejected 403 by RequireWriteScope below on anything mutating. A
+	// zero-value AuthContext (e.g. a test double that doesn't set this
+	// field) is treated as fully read_write, matching every pre-existing
+	// token/test's actual behavior — see RequireWriteScope's own doc
+	// comment.
+	Scope string
 }
 
 // TokenRow is what TokenStore.Lookup returns for a valid, non-revoked
-// token — the three columns auth.ts's preHandler hook actually selects
-// (`id`, `product_id`, `merchant_entity_id`) from api_tokens.
+// token — the four columns the auth middleware actually selects (`id`,
+// `product_id`, `merchant_entity_id`, `scope`) from api_tokens.
 type TokenRow struct {
 	ID               string
 	ProductID        string
 	MerchantEntityID string
+	Scope            string
+}
+
+// RequireWriteScope rejects a read_only-scoped caller with 403 before a
+// mutating handler does anything else, writing the response and
+// returning false if so. Every mutating route in this package
+// (refund/void/capture payments, cancel subscription) calls this right
+// after resolving AuthContext, so scope enforcement lives in exactly
+// one place rather than being reimplemented per handler.
+//
+// Only "read_only" is ever rejected — an empty Scope (every token that
+// existed before this field was added, and every test's AuthContext
+// literal that doesn't set it) is treated as read_write, so this is
+// purely additive: no pre-existing token or test behavior changes.
+func RequireWriteScope(w http.ResponseWriter, auth AuthContext) bool {
+	if auth.Scope == "read_only" {
+		WriteProblem(w, http.StatusForbidden, "Read-only token",
+			"This API token is scoped to read_only and cannot call a mutating endpoint. Create a read_write agent token instead.")
+		return false
+	}
+	return true
 }
 
 // TokenStore is the minimal capability the Auth middleware needs from
@@ -213,6 +244,7 @@ func (m *AuthMiddleware) Middleware(next http.Handler) http.Handler {
 			APITokenID:       row.ID,
 			ProductID:        row.ProductID,
 			MerchantEntityID: row.MerchantEntityID,
+			Scope:            row.Scope,
 		}
 		ctx := context.WithValue(r.Context(), authContextKey, authCtx)
 		r = r.WithContext(ctx)

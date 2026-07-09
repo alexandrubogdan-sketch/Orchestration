@@ -37,6 +37,7 @@ export const DOCS_NAV: DocsNavGroup[] = [
       { href: "/docs/plans", label: "Plans & billing" },
       { href: "/docs/integrations", label: "Integrations" },
       { href: "/docs/team", label: "Team & invites" },
+      { href: "/docs/ai-agents", label: "AI Agents (MCP)" },
     ],
   },
   {

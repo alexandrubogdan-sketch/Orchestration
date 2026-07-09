@@ -27,7 +27,10 @@
     "tailwind-merge": "^3.6.0",
     "zustand": "^5.0.14",
     "@alphapayments/checkout-sdk": "file:./vendor/alphapayments-checkout-sdk-0.1.0.tgz",
-    "framer-motion": "^11.11.17"
+    "framer-motion": "^11.11.17",
+    "@modelcontextprotocol/sdk": "1.26.0",
+    "mcp-handler": "^1.1.0",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

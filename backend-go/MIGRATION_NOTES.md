@@ -4979,3 +4979,100 @@ template, e.g. `${{Postgres.DATABASE_URL}}`, not the resolved secret)
 rather than assuming. No environment variable changes were needed to
 swap the `api` service's source from `backend` (the TS directory) to
 `backend-go`; only Root Directory and Dockerfile Path change.
+
+## AI Agents / MCP feature — 2026-07-09
+
+Adds the backend half of an MCP (Model Context Protocol) integration —
+self-serve scoped API tokens plus the two mutating actions the sibling
+frontend's MCP server (`payment-orchestrator-frontend/app/api/mcp/
+route.ts`) actually calls on a caller's behalf: refunding a payment
+(already existed) and canceling a subscription (new).
+
+**New resource: agent tokens** (`internal/api/agent_tokens.go`,
+`db/migrations/1735777600000_agent-tokens.{up,down}.sql`).
+`POST/GET/DELETE /v1/agent-tokens` — create/list/revoke, all
+Bearer-authenticated exactly like every other `/v1/*` route. Deliberately
+reuses the existing `api_tokens` table/hashing scheme rather than a
+second auth system: three new columns —
+`scope` (`read_only`|`read_write`, default `read_write` so every
+pre-existing token is unaffected), `kind` (`api`|`mcp_agent`, default
+`api` so the list/revoke routes never touch the original bootstrap
+token), `last_used_at` (added for a future pass; nothing writes it yet).
+`TokenStore.Lookup` now also selects `scope`; `AuthContext` carries it
+through as `Scope`. New `RequireWriteScope(w, auth)` helper
+(`internal/api/auth.go`) is the single enforcement point: every mutating
+handler in the package now calls it first — `handleAttemptAction`
+(capture+void), `handleRefundPayment`, and the new
+`handleCancelSubscription` below. A read_only-scoped token gets 403 on
+all four; every GET route remains unaffected by scope.
+
+**New resource: subscriptions HTTP surface** (`internal/api/
+subscriptions.go`) — this table (Milestone 8) previously had zero HTTP
+routes; only the background worker touched it. Added `GET
+/v1/subscriptions` (optional `?customerId=`), `GET
+/v1/subscriptions/{id}`, and `POST /v1/subscriptions/{id}/cancel`
+(scope-checked; delegates the actual mutation to the pre-existing
+`internal/subscriptions.CancelSubscription(ctx, pool, id, reason)`,
+unchanged). The two GET routes exist specifically so an MCP "research"
+tool has any way to discover a subscription's real id before an agent
+could ever call cancel — without them cancel would have been wired but
+undiscoverable, since no existing route (including `PaymentDTO`) exposes
+`subscription_id` anywhere. Deliberately queries `*pgxpool.Pool`
+directly (via `Deps.SubscriptionsPool`) rather than adding a fifth store
+interface, matching this file's own doc comment on when that tradeoff
+should flip.
+
+**Sandbox constraint, again, honestly:** the same constraint from this
+file's very first section still holds in this later session — no Go
+toolchain, no way to install one, `go.dev`/`dl.google.com` and GitHub
+release assets are all `blocked-by-allowlist`. Verified the same two
+ways as every other phase in this document: (1) `tree-sitter` +
+`tree-sitter-languages` via `pip` parsed all seven touched/new files
+(`agent_tokens.go`, `subscriptions.go`, `auth.go`, `pgstore.go`,
+`router.go`, `payments.go`, `cmd/api/main.go`) — zero syntax-error
+nodes; (2) a manual line-by-line review of every import, every call
+site's argument types against the exact signatures already in this
+codebase (`TokenRow`/`AgentTokenRow` field order, `pgx.Row`/`pgx.Rows`
+both satisfying the ad hoc `Scan(dest ...any) error` interface
+`scanSubscriptionRow` takes, `WriteProblem`/`writeJSON`/
+`decodeJSONBody`'s existing signatures), and interface satisfaction
+(`PgxTokenStore` against both `TokenStore` and the new
+`AgentTokenStore`). This still does not type-check the way a real `go
+build` would — Railway's own Docker build is the first point in this
+change's life where it will actually compile, and that log is the real
+verification, not this document.
+
+**Known gap, stated plainly:** `scope` only ever comes from the
+`kind='mcp_agent'` self-serve path — the one pre-existing bootstrap
+token (`kind='api'`) has no UI to change its scope away from the
+`read_write` default, which is correct (it should stay fully
+privileged) but means there is currently no way to downgrade *that one*
+token without a manual `UPDATE api_tokens SET scope = ...` — not a gap
+this feature needed to close.
+
+**Frontend half, completed same day:** the sibling frontend's MCP
+server actually landed at `payment-orchestrator-frontend/app/api/
+[transport]/route.ts`, not the literal `app/api/mcp/route.ts` path this
+section originally guessed — functionally identical (Vercel's
+`mcp-handler` package maps the `[transport]` dynamic segment plus its
+`basePath: "/api"` config onto the same live URL, `.../api/mcp`), just
+Next.js's own convention for a route that also has to answer `GET`
+(SSE) at the same path. Registers ten tools (`list_payments`,
+`get_payment`, `capture_payment`, `void_payment`, `refund_payment`,
+`list_customers`, `list_customer_payment_methods`,
+`list_subscriptions`, `get_subscription`, `cancel_subscription`) that
+forward the calling MCP client's own Bearer token straight through to
+this backend via a new `lib/mcp/backend-client.ts` — deliberately not
+the master-token proxy pattern every other `app/api/*` route in that
+app uses, since an MCP caller must be scoped to exactly its own agent
+token, not the dashboard's own master token. New `app/agents/page.tsx`
+manages agent tokens (create/list/revoke against the routes this
+section added, via a plain master-token proxy — creating a token is
+just another authenticated call, so it *does* use the normal proxy
+pattern), and `app/docs/ai-agents/page.tsx` documents the whole
+feature. See that frontend's own doc comments (`app/api/[transport]/
+route.ts`'s top comment in particular) for why `mcp-handler` was used
+instead of wiring `@modelcontextprotocol/sdk`'s `StreamableHTTPServerTransport`
+directly — that transport's `handleRequest(req, res, body)` expects
+Node's raw `IncomingMessage`/`ServerResponse`, which a Next.js App
+Router Route Handler does not hand you.

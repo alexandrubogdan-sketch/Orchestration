@@ -12,6 +12,7 @@ import {
   UsersRound,
   SquareCode,
   RotateCcw,
+  Bot,
 } from "lucide-react";
 import { DocsHeader } from "@/components/docs/docs-header";
 import { Callout } from "@/components/docs/callout";
@@ -244,6 +245,7 @@ export default function DocsOverviewPage() {
             { href: "/docs/plans", title: "Plans & billing", desc: "Recurring/one-off, trials, tax collection", icon: Wallet },
             { href: "/docs/integrations", title: "Integrations", desc: "Per-processor credentials", icon: Boxes },
             { href: "/docs/team", title: "Team & invites", desc: "Roles, members, pending invites", icon: UsersRound },
+            { href: "/docs/ai-agents", title: "AI Agents (MCP)", desc: "Connect Claude via MCP; tool list, scopes, tokens", icon: Bot },
             { href: "/docs/risk-monitoring", title: "Risk monitoring", desc: "VAMP / Mastercard thresholds", icon: ShieldAlert },
             { href: "/docs/reconciliation", title: "Reconciliation & ledger", desc: "Settlement matching, exceptions", icon: Scale },
             { href: "/docs/deployment", title: "Deployment", desc: "Vercel, Railway, and what isn't wired up", icon: Rocket },

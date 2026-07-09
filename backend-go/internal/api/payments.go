@@ -833,6 +833,9 @@ func handleVoidPayment(deps PaymentsRouteDeps) http.HandlerFunc {
 func handleRefundPayment(deps PaymentsRouteDeps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		auth, _ := authFromContext(r.Context())
+		if !RequireWriteScope(w, auth) {
+			return
+		}
 		id := chi.URLParam(r, "id")
 		idemKey, err := RequireIdempotencyKey(r.Header)
 		if err != nil {
@@ -933,6 +936,13 @@ func handleAttemptAction(
 	body func(ctx context.Context, deps PaymentsRouteDeps, auth AuthContext, id string, idemKey string) (IdempotentResult, error),
 ) {
 	auth, _ := authFromContext(r.Context())
+	// Covers both handleCapturePayment and handleVoidPayment, the two
+	// callers of this shared helper — a read_only-scoped MCP agent
+	// token (agent_tokens.go) gets 403 on either action from this one
+	// check, rather than needing it duplicated at each call site.
+	if !RequireWriteScope(w, auth) {
+		return
+	}
 	id := chi.URLParam(r, "id")
 	idemKey, err := RequireIdempotencyKey(r.Header)
 	if err != nil {

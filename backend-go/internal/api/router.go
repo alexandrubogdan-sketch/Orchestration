@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/alphapayments/payment-orchestrator/internal/adapters/registry"
 )
@@ -79,6 +80,18 @@ type Deps struct {
 	// hardcoded defaults; handleUpsertRetrySettings 501s), matching
 	// every other store field's nil-dependency handling in this struct.
 	RetrySettingsStore RetrySettingsStore
+
+	// AgentTokenStore backs the agent-tokens resource — self-serve
+	// creation/listing/revocation of scoped API tokens for MCP clients
+	// (see agent_tokens.go's top doc comment). May be nil, matching
+	// every other store field's nil-dependency handling in this struct.
+	AgentTokenStore AgentTokenStore
+
+	// SubscriptionsPool backs the one subscriptions route
+	// (POST /v1/subscriptions/{id}/cancel — see subscriptions.go's top
+	// doc comment for why this is a raw *pgxpool.Pool rather than a
+	// narrow store interface). May be nil, in which case the route 501s.
+	SubscriptionsPool *pgxpool.Pool
 
 	// PlansStore backs the plans resource — a merchant's configurable
 	// pricing catalog (recurring/one-off plans, per-country/currency
@@ -274,6 +287,18 @@ func BuildRouter(deps Deps) *chi.Mux {
 		// Idempotency-Key the way payments/checkout-sessions do.
 		registerPlansRoutes(v1, PlansRouteDeps{
 			Store: deps.PlansStore,
+		})
+		// POST/GET/DELETE /v1/agent-tokens — Bearer-authenticated exactly
+		// like every other /v1/* route above; see agent_tokens.go's top
+		// doc comment for the MCP-agent-token feature this backs.
+		registerAgentTokensRoutes(v1, AgentTokensRouteDeps{
+			Store: deps.AgentTokenStore,
+		})
+		// POST /v1/subscriptions/{id}/cancel — Bearer-authenticated,
+		// scope-checked (RequireWriteScope); see subscriptions.go's top
+		// doc comment.
+		registerSubscriptionsRoutes(v1, SubscriptionsRouteDeps{
+			Pool: deps.SubscriptionsPool,
 		})
 	})
 
