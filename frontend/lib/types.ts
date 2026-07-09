@@ -188,15 +188,25 @@ export interface EntityBreakdownRow {
 
 /* ------------------------------------------------------------------ *
  * Workflows — modeled on docs.paynext.com/guides/platform/workflows
- * and docs.paynext.com/guides/payments/3d-secure.
+ * and docs.paynext.com/guides/payments/3d-secure, and (2026-07-09)
+ * re-built to match the real client's (AlphaPayments-client, the
+ * production Next.js app this demo mirrors) actual canvas 1:1: a real
+ * node graph (`nodes[]` + `edges[]`, not an implicit linear chain),
+ * a Condition node that can hold multiple side-by-side condition
+ * *blocks* (each its own branch, each with its own outgoing handle —
+ * see WorkflowConditionBlock), and a Split node for percentage-based
+ * fan-out (see WorkflowSplitBranch). Config for a condition block or
+ * action lives behind a modal opened from the node's popover menu,
+ * exactly like the real client, rather than inline in the card body.
  *
- * PayNext's actual model: one trigger ("Payment Pending", tied to a
- * single payment method) per workflow, then any number of Condition /
- * Split / Action nodes connected in any order, with AND/OR condition
- * groups and branching. This first pass deliberately simplifies that to
- * a single linear chain (trigger -> node -> node -> ...) with no
- * branching/grouping and no Split node — see the frontend README's
- * "Known gaps" for what's dropped versus the real PayNext feature set.
+ * Deliberate simplification versus the real client, stated plainly:
+ * each condition block here is a single parameter/operator/value
+ * check (WorkflowCondition), not the real client's further-nested
+ * AND/OR "condition groups" of multiple fields per block — that's a
+ * materially bigger domain model change than the canvas UI/UX this
+ * pass targets. There's also no separate read-only "view" route for
+ * past workflow versions (see workflow-history-list.tsx instead) —
+ * this demo's canvas is always editable.
  * ------------------------------------------------------------------ */
 
 export const PAYMENT_METHOD_TYPES = ["cards", "apple_pay", "google_pay"] as const;
@@ -243,6 +253,29 @@ export interface WorkflowCondition {
   metadataKey?: string;
   operator: WorkflowOperator;
   value: string;
+}
+
+/** One branch inside a Condition node's canvas card — matches the real
+ *  client's side-by-side condition "blocks" (condition-node-content.
+ *  component.tsx): each has its own title, its own WorkflowCondition,
+ *  and its own outgoing handle (`id` doubles as the React Flow
+ *  sourceHandle id so a Split-style multi-branch condition node can
+ *  route each block to a different downstream node). */
+export interface WorkflowConditionBlock {
+  id: string;
+  title: string;
+  condition: WorkflowCondition;
+}
+
+/** One branch inside a Split node — percentage-based fan-out, matches
+ *  the real client's split-node-content.component.tsx (label + % +
+ *  progress bar). `value` is a percentage 0-100; all branches on one
+ *  Split node must sum to 100 (enforced by the Split modal / rebalance
+ *  helpers in lib/workflow-store.ts, not at the type level). */
+export interface WorkflowSplitBranch {
+  id: string;
+  label: string;
+  value: number;
 }
 
 /** docs.paynext.com/guides/platform/workflows — "Actions" table. */
@@ -299,15 +332,32 @@ export interface WorkflowAction {
   delaySeconds?: number;
 }
 
-export type WorkflowNodeKind = "trigger" | "condition" | "action";
+export type WorkflowNodeKind = "trigger" | "condition" | "action" | "split";
 
 export interface WorkflowNode {
   id: string;
   kind: WorkflowNodeKind;
   /** trigger only */
   paymentMethod?: PaymentMethodType;
-  condition?: WorkflowCondition;
+  /** condition only — one or more side-by-side branches (see
+   *  WorkflowConditionBlock's own doc comment). */
+  conditions?: WorkflowConditionBlock[];
+  /** split only — two or more percentage branches summing to 100. */
+  splits?: WorkflowSplitBranch[];
   action?: WorkflowAction;
+}
+
+/** A real graph edge — replaces the old "array order implies a linear
+ *  chain" model so Condition/Split branches can each route to a
+ *  different downstream node, matching the real client's canvas
+ *  exactly. `sourceHandle` is set when the edge leaves a specific
+ *  condition/split branch rather than a plain trigger/action node's
+ *  single output. */
+export interface WorkflowEdge {
+  id: string;
+  source: string;
+  sourceHandle?: string;
+  target: string;
 }
 
 export type WorkflowState = "draft" | "published";
@@ -317,8 +367,10 @@ export interface Workflow {
   name: string;
   paymentMethod: PaymentMethodType;
   state: WorkflowState;
-  /** nodes[0] is always the trigger; the rest is a linear chain in order. */
+  /** nodes[0] is always the trigger. Order beyond that is not
+   *  meaningful — the graph structure lives entirely in `edges`. */
   nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
   updatedAt: string;
 }
 
@@ -628,7 +680,21 @@ export interface Integration {
   credentialPreviews?: Record<string, string>;
   /** Statement/billing descriptors configured for this processor account —
    *  surfaced so the VAMP/Mastercard risk-monitoring dashboard can offer a
-   *  per-descriptor filter. */
+   *  per-descriptor filter. Settable at connect-time and via the Edit
+   *  dialog on the Integrations page (components/integrations/
+   *  connect-dialog.tsx); validated client-side against Stripe's
+   *  documented 22-char dynamic statement-descriptor-suffix limit, the
+   *  same rule the Go backend now enforces at the DB layer (see
+   *  payment-orchestrator-go/db/migrations/
+   *  1735777500000_psp-account-statement-descriptor.up.sql).
+   *
+   *  Honesty note: there is currently no backend psp-accounts API for
+   *  this frontend to call — Integrations here are 100% local/mock
+   *  (unlike Payments/Customers/Retries, which call the real backend in
+   *  Live mode). This value is therefore stored client-side only, in
+   *  lib/integration-store.ts. A future backend integration would read
+   *  this same field to set `statement_descriptor_suffix` on the
+   *  connected psp_account. */
   descriptors?: string[];
 }
 

@@ -1,99 +1,107 @@
 import ELK from "elkjs/lib/elk.bundled.js";
 import type { Edge, Node } from "@xyflow/react";
-import type { Workflow, WorkflowNodeKind } from "./types";
+import type { Workflow, WorkflowNode } from "./types";
 
 /**
- * Converts a workflow's node chain into a React Flow graph: one column,
- * top to bottom — trigger, then each condition/action node in order,
- * then a trailing "add node" placeholder. This is a deliberate
- * simplification of PayNext's actual canvas (arbitrary placement,
- * branching, AND/OR condition groups, a Split node) down to a single
- * linear chain — see the frontend README's "Known gaps" section.
+ * Converts a workflow's real node graph (`nodes[]` + `edges[]`) into a
+ * React Flow graph — matching the real client's own canvas exactly: a
+ * Condition node's blocks and a Split node's branches can each route
+ * to a different downstream node (via `edge.sourceHandle`), not just
+ * a single linear chain. This replaces the earlier "array order
+ * implies a chain, plus a trailing addNode placeholder" model — there
+ * is no addNode node type anymore; extending the canvas happens via
+ * each node's own hover "+" handles (components/workflow/add-handle.tsx)
+ * or by dragging a card in from the sidebar palette
+ * (components/workflow/canvas-sidebar.tsx), exactly like the real
+ * client.
  *
- * Edges are entirely derived from the node order, not user-drawn —
- * there is nothing to connect by hand; the "+" placeholder is the only
- * way to extend the chain, which keeps the canvas and the underlying
- * `workflows[].nodes` array always in sync.
- *
- * Positions are computed with elkjs's layered algorithm rather than a
- * hardcoded column/row grid. It's overkill for a single vertical chain
- * today, but it's the same approach reactflow.dev's auto-layout example
- * uses, keeps spacing consistent as node heights vary by kind, and gives
- * us a real layout engine to build on if branching/Split nodes land later.
+ * Positions are computed with elkjs's layered algorithm (same library
+ * the real client's own workflow-layout.service.ts wraps dagre with —
+ * elk's layered algorithm is the direct equivalent) rather than a
+ * hardcoded grid, since the graph can now genuinely branch and merge.
  */
 
 const elk = new ELK();
 
-// Must stay in sync with the rendered node width (`w-80` = 320px) in
-// components/workflow/nodes.tsx.
-const NODE_WIDTH = 320;
+// Base card width, matching the real client's compact ~224px cards
+// (see components/workflow/nodes.tsx's CARD_WIDTH) rather than this
+// demo's old full-width 320px inline-config cards.
+const CARD_WIDTH = 232;
+// Condition/Split cards grow wider as blocks/branches are added — same
+// per-block sizing the real client uses (190-195px per block + gap),
+// scaled down slightly to match CARD_WIDTH's own proportions.
+const BLOCK_WIDTH = 168;
+const BLOCK_GAP = 8;
+const CARD_PADDING_X = 24;
 
-// ELK needs concrete dimensions up front — it doesn't measure the DOM.
-// These are rough estimates per node kind, tall enough to avoid visible
-// overlap for the common case (trigger is short; condition/action cards
-// carry a couple of form fields and run taller).
-const NODE_HEIGHT_BY_KIND: Record<WorkflowNodeKind, number> = {
-  trigger: 120,
-  condition: 190,
-  action: 220,
-};
-const ADD_NODE_HEIGHT = 56;
+function widthForNode(node: WorkflowNode): number {
+  const blockCount = node.conditions?.length ?? node.splits?.length ?? 0;
+  if (blockCount === 0) return CARD_WIDTH;
+  const blocksWidth = blockCount * BLOCK_WIDTH + (blockCount - 1) * BLOCK_GAP + CARD_PADDING_X;
+  return Math.max(CARD_WIDTH, blocksWidth);
+}
+
+function heightForNode(node: WorkflowNode): number {
+  switch (node.kind) {
+    case "trigger":
+      return 92;
+    case "condition":
+      return 118;
+    case "split":
+      return 108;
+    case "action":
+      switch (node.action?.type) {
+        case "authorize_payment":
+          return 150;
+        case "set_metadata":
+          return 130;
+        case "delay":
+          return 96;
+        default:
+          // settle_payment / block_payment — header only, no content,
+          // matching the real client's payment-capture/payment-decline
+          // cards (getNodeBaseSizes: height 41-ish once scaled to our
+          // header size).
+          return 52;
+      }
+  }
+}
 
 const ELK_LAYOUT_OPTIONS = {
   "elk.algorithm": "layered",
   "elk.direction": "DOWN",
-  "elk.layered.spacing.nodeNodeBetweenLayers": "80",
-  "elk.spacing.nodeNode": "80",
+  "elk.layered.spacing.nodeNodeBetweenLayers": "70",
+  "elk.spacing.nodeNode": "60",
 };
 
 export async function buildWorkflowGraph(
   workflow: Workflow,
 ): Promise<{ nodes: Node[]; edges: Edge[] }> {
-  const nodes: Node[] = [];
-  const edges: Edge[] = [];
+  const nodes: Node[] = workflow.nodes.map((node) => ({
+    id: node.id,
+    type: node.kind,
+    position: { x: 0, y: 0 },
+    data: { workflowId: workflow.id, node },
+  }));
 
-  workflow.nodes.forEach((node, index) => {
-    nodes.push({
-      id: node.id,
-      type: node.kind,
-      position: { x: 0, y: 0 },
-      data: { workflowId: workflow.id, node },
-    });
-    if (index > 0) {
-      edges.push({
-        id: `${workflow.nodes[index - 1]!.id}-${node.id}`,
-        source: workflow.nodes[index - 1]!.id,
-        target: node.id,
-      });
-    }
-  });
-
-  const lastNode = workflow.nodes[workflow.nodes.length - 1];
-  let addNodeId: string | undefined;
-  if (lastNode) {
-    addNodeId = `${workflow.id}-add`;
-    nodes.push({
-      id: addNodeId,
-      type: "addNode",
-      position: { x: 0, y: 0 },
-      data: { workflowId: workflow.id },
-    });
-    edges.push({ id: `${lastNode.id}-${addNodeId}`, source: lastNode.id, target: addNodeId });
-  }
-
-  const heightById = new Map<string, number>();
-  workflow.nodes.forEach((node) => heightById.set(node.id, NODE_HEIGHT_BY_KIND[node.kind]));
-  if (addNodeId) heightById.set(addNodeId, ADD_NODE_HEIGHT);
+  const edges: Edge[] = workflow.edges.map((edge) => ({
+    id: edge.id,
+    source: edge.source,
+    sourceHandle: edge.sourceHandle,
+    target: edge.target,
+    type: "smoothstep",
+    animated: true,
+  }));
 
   const elkGraph = {
     id: "root",
     layoutOptions: ELK_LAYOUT_OPTIONS,
-    children: nodes.map((node) => ({
+    children: workflow.nodes.map((node) => ({
       id: node.id,
-      width: NODE_WIDTH,
-      height: heightById.get(node.id) ?? NODE_HEIGHT_BY_KIND.action,
+      width: widthForNode(node),
+      height: heightForNode(node),
     })),
-    edges: edges.map((edge) => ({
+    edges: workflow.edges.map((edge) => ({
       id: edge.id,
       sources: [edge.source],
       targets: [edge.target],

@@ -560,20 +560,55 @@ export function defaultWorkflows(): Workflow[] {
       paymentMethod: "cards",
       state: "published",
       updatedAt: daysAgoIso(2, mulberry32(5)),
+      // A 2-block Condition node (EU issuers vs. everyone else), each
+      // block routing to its own Authorize action, followed by a Split
+      // node fanning the EU path across two processors — exercises the
+      // full node-graph model (branching condition blocks + a
+      // percentage split), not just a linear chain.
       nodes: [
         { id: "node-trigger", kind: "trigger", paymentMethod: "cards" },
         {
-          id: "node-condition-eu",
+          id: "node-condition-region",
           kind: "condition",
-          condition: { parameter: "issuer_country", operator: "one_of", value: "DE,FR,NL,ES" },
+          conditions: [
+            {
+              id: "block-eu",
+              title: "EU issuers",
+              condition: { parameter: "issuer_country", operator: "one_of", value: "DE,FR,NL,ES" },
+            },
+            {
+              id: "block-row",
+              title: "Rest of world",
+              condition: { parameter: "issuer_country", operator: "not_equals", value: "DE,FR,NL,ES" },
+            },
+          ],
         },
         {
-          id: "node-action-eu",
+          id: "node-split-eu",
+          kind: "split",
+          splits: [
+            { id: "branch-primary", label: "Stripe", value: 70 },
+            { id: "branch-secondary", label: "Solidgate", value: 30 },
+          ],
+        },
+        {
+          id: "node-action-eu-primary",
           kind: "action",
           action: {
             type: "authorize_payment",
             processor: "stripe",
             fallbackProcessor: "solidgate",
+            threeDsMode: "adaptive",
+            useCitProcessor: false,
+          },
+        },
+        {
+          id: "node-action-eu-secondary",
+          kind: "action",
+          action: {
+            type: "authorize_payment",
+            processor: "solidgate",
+            fallbackProcessor: "stripe",
             threeDsMode: "adaptive",
             useCitProcessor: false,
           },
@@ -588,6 +623,33 @@ export function defaultWorkflows(): Workflow[] {
             threeDsMode: "frictionless",
             useCitProcessor: true,
           },
+        },
+      ],
+      edges: [
+        { id: "e-trigger-condition", source: "node-trigger", target: "node-condition-region" },
+        {
+          id: "e-condition-eu-split",
+          source: "node-condition-region",
+          sourceHandle: "block-eu",
+          target: "node-split-eu",
+        },
+        {
+          id: "e-condition-row-default",
+          source: "node-condition-region",
+          sourceHandle: "block-row",
+          target: "node-action-default",
+        },
+        {
+          id: "e-split-primary",
+          source: "node-split-eu",
+          sourceHandle: "branch-primary",
+          target: "node-action-eu-primary",
+        },
+        {
+          id: "e-split-secondary",
+          source: "node-split-eu",
+          sourceHandle: "branch-secondary",
+          target: "node-action-eu-secondary",
         },
       ],
     },
@@ -605,6 +667,7 @@ export function defaultWorkflows(): Workflow[] {
           action: { type: "authorize_payment", processor: "stripe", threeDsMode: "no_3ds" },
         },
       ],
+      edges: [{ id: "e-trigger-action", source: "node-trigger", target: "node-action-1" }],
     },
   ];
 }
