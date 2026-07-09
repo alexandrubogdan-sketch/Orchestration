@@ -65,7 +65,7 @@ export function CanvasEdgeView({
 
   const pathStyle = {
     ...style,
-    ...(highlighted ? { stroke: "#3b82f6", strokeWidth: 2.5 } : null),
+    ...(highlighted ? { stroke: "#f8fafc", strokeWidth: 2.5 } : null),
     ...(dimmed ? { opacity: 0.2 } : null),
   };
 
