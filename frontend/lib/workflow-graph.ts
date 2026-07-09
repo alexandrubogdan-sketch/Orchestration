@@ -89,7 +89,12 @@ export async function buildWorkflowGraph(
     source: edge.source,
     sourceHandle: edge.sourceHandle,
     target: edge.target,
-    type: "smoothstep",
+    // The real client's CanvasEdgeComponent draws its path with
+    // `getBezierPath` (a true bezier curve), not an orthogonal
+    // smoothstep — "default" is React Flow's built-in bezier edge
+    // type, which renders the same rounded/curved line instead of the
+    // squared-off right-angle look "smoothstep" produced.
+    type: "default",
     animated: true,
   }));
 

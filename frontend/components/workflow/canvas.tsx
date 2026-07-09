@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTheme } from "next-themes";
 import { AlignCenterHorizontal, Maximize2, Minimize2 } from "lucide-react";
 import {
@@ -48,53 +48,56 @@ function WorkflowCanvasInner({ workflow }: { workflow: Workflow }) {
   // we only auto-fit the very first time a given workflow is laid out (or
   // right after an explicit "Rearrange").
   const fitDoneForWorkflowRef = useRef<string | null>(null);
-  // "Rearrange" button bumps this via requestRelayout — when it
-  // changes, drop every manually-dragged position so the next layout
-  // pass is a clean ELK auto-layout instead of respecting drags.
-  const relayoutTick = useWorkflowStore((s) => s.relayoutRequests[workflow.id] ?? 0);
-  const prevRelayoutTickRef = useRef(relayoutTick);
+  // Every runLayout() call stamps its own ticket here before awaiting
+  // elk — if a newer call starts before an older one resolves, the
+  // older one's result is discarded instead of clobbering the newer
+  // layout (replaces the previous per-effect `ignore` closure, which
+  // couldn't be shared between the auto effect and a direct button
+  // click).
+  const layoutGenerationRef = useRef(0);
 
-  // Rebuild whenever the graph changes (node/edge added/removed/edited),
-  // but keep any position the user has already dragged a node to.
-  //
-  // buildWorkflowGraph is async (it awaits elkjs layout), so this can no
-  // longer be a synchronous useMemo — it's computed in an effect with an
-  // `ignore` guard so a stale in-flight layout can't clobber state after a
-  // newer workflow/edit supersedes it or after unmount.
-  useEffect(() => {
-    let ignore = false;
-    const rearranged = relayoutTick !== prevRelayoutTickRef.current;
-    if (rearranged) {
-      prevRelayoutTickRef.current = relayoutTick;
-      positionsRef.current.clear();
-      fitDoneForWorkflowRef.current = null;
-    }
+  const runLayout = useCallback(
+    async (options?: { forceReset?: boolean }) => {
+      const generation = ++layoutGenerationRef.current;
 
-    async function runLayout() {
-      const { nodes: builtNodes, edges: builtEdges } = await buildWorkflowGraph(workflow);
-      if (ignore) return;
+      if (options?.forceReset) {
+        positionsRef.current.clear();
+        fitDoneForWorkflowRef.current = null;
+      }
 
-      const nextNodes = builtNodes.map((node) => {
+      let built: { nodes: Node[]; edges: import("@xyflow/react").Edge[] };
+      try {
+        built = await buildWorkflowGraph(workflow);
+      } catch (error) {
+        // elk can in principle reject on a malformed/disconnected
+        // graph shape — surface it instead of silently doing nothing,
+        // which is what made "Rearrange" look like it "sometimes
+        // doesn't work."
+        console.error("Workflow auto-layout failed:", error);
+        return;
+      }
+      if (generation !== layoutGenerationRef.current) return; // superseded by a newer call
+
+      const nextNodes = built.nodes.map((node) => {
         const savedPosition = positionsRef.current.get(node.id);
         return savedPosition ? { ...node, position: savedPosition } : node;
       });
       setNodes(nextNodes);
-      setEdges(builtEdges);
+      setEdges(built.edges);
 
       if (fitDoneForWorkflowRef.current !== workflow.id) {
         fitDoneForWorkflowRef.current = workflow.id;
         requestAnimationFrame(() => fitView());
       }
-    }
+    },
+    [workflow, setNodes, setEdges, fitView],
+  );
 
+  // Rebuild whenever the graph changes (node/edge added/removed/edited),
+  // but keep any position the user has already dragged a node to.
+  useEffect(() => {
     void runLayout();
-
-    return () => {
-      ignore = true;
-    };
-  }, [workflow, setNodes, setEdges, fitView, relayoutTick]);
-
-  const requestRelayout = useWorkflowStore((s) => s.requestRelayout);
+  }, [runLayout]);
 
   return (
     <div
@@ -149,7 +152,7 @@ function WorkflowCanvasInner({ workflow }: { workflow: Workflow }) {
                   size="icon"
                   variant="outline"
                   className="h-8 w-8 -rotate-90"
-                  onClick={() => requestRelayout(workflow.id)}
+                  onClick={() => void runLayout({ forceReset: true })}
                   title="Rearrange — reset dragged nodes back to the automatic layout"
                 >
                   <AlignCenterHorizontal className="h-3.5 w-3.5" />
