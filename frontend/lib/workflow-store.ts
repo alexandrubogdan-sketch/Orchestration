@@ -57,6 +57,11 @@ interface WorkflowStoreState {
   addFloatingNode: (workflowId: string, seed: NewNodeSeed) => string;
   duplicateNode: (workflowId: string, nodeId: string) => void;
   removeNode: (workflowId: string, nodeId: string) => void;
+  /** Deletes a single connection without touching either endpoint node —
+   *  the hover "×" on a connected edge (components/workflow/canvas-edge.tsx),
+   *  as opposed to removeNode's edge cleanup which only ever happens as a
+   *  side effect of deleting a whole node. */
+  removeEdge: (workflowId: string, edgeId: string) => void;
 
   updateAction: (workflowId: string, nodeId: string, patch: Partial<WorkflowAction>) => void;
 
@@ -244,6 +249,15 @@ export const useWorkflowStore = create<WorkflowStoreState>((set) => ({
         // rule (docs.paynext.com/guides/platform/workflows).
         nodes: w.nodes.filter((n, i) => i === 0 || n.id !== nodeId),
         edges: w.edges.filter((e) => e.source !== nodeId && e.target !== nodeId),
+        updatedAt: new Date().toISOString(),
+      })),
+    })),
+
+  removeEdge: (workflowId, edgeId) =>
+    set((state) => ({
+      workflows: mapWorkflows(state.workflows, workflowId, (w) => ({
+        ...w,
+        edges: w.edges.filter((e) => e.id !== edgeId),
         updatedAt: new Date().toISOString(),
       })),
     })),

@@ -89,13 +89,14 @@ export async function buildWorkflowGraph(
     source: edge.source,
     sourceHandle: edge.sourceHandle,
     target: edge.target,
-    // The real client's CanvasEdgeComponent draws its path with
-    // `getBezierPath` (a true bezier curve), not an orthogonal
-    // smoothstep — "default" is React Flow's built-in bezier edge
-    // type, which renders the same rounded/curved line instead of the
-    // squared-off right-angle look "smoothstep" produced.
-    type: "default",
+    // "workflowEdge" (components/workflow/canvas-edge.tsx) draws the
+    // same bezier curve React Flow's built-in "default" type would
+    // (via getBezierPath, matching the real client's
+    // CanvasEdgeComponent) but adds a hover-only "×" to delete the
+    // connection.
+    type: "workflowEdge",
     animated: true,
+    data: { workflowId: workflow.id },
   }));
 
   const elkGraph = {

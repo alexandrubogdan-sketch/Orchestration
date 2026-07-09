@@ -21,10 +21,16 @@ import { cn } from "@/lib/utils";
 import { useWorkflowStore } from "@/lib/workflow-store";
 import { buildWorkflowGraph } from "@/lib/workflow-graph";
 import { NODE_TYPES } from "@/components/workflow/nodes";
+import { CanvasEdgeView } from "@/components/workflow/canvas-edge";
 import { CanvasSidebarComponent, WORKFLOW_DRAG_MIME } from "@/components/workflow/canvas-sidebar";
 import { Button } from "@/components/ui/button";
 import type { Workflow } from "@/lib/types";
 import type { NewNodeSeed } from "@/lib/workflow-store";
+
+// Defined once at module scope (not inline in the JSX below) — React
+// Flow re-runs internal setup whenever the nodeTypes/edgeTypes object
+// identity changes, so this must stay stable across renders.
+const EDGE_TYPES = { workflowEdge: CanvasEdgeView };
 
 /**
  * Two-pane canvas — a fixed-width node palette on the left
@@ -126,6 +132,7 @@ function WorkflowCanvasInner({ workflow }: { workflow: Workflow }) {
           nodes={nodes}
           edges={edges}
           nodeTypes={NODE_TYPES}
+          edgeTypes={EDGE_TYPES}
           onNodesChange={(changes) => {
             onNodesChangeInternal(changes);
             for (const change of changes) {

@@ -2,11 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, Download, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, Download, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PAYMENT_METHOD_LABELS } from "@/lib/types";
 import { useWorkflowStore } from "@/lib/workflow-store";
+import { isWorkflowComplete, WORKFLOW_INCOMPLETE_MESSAGE } from "@/lib/workflow-validation";
 
 export function BuilderToolbar({ workflowId }: { workflowId: string }) {
   const workflow = useWorkflowStore((s) => s.workflows.find((w) => w.id === workflowId));
@@ -14,25 +16,34 @@ export function BuilderToolbar({ workflowId }: { workflowId: string }) {
   const [jsonOpen, setJsonOpen] = useState(false);
   // Every edit already commits straight to the store (no separate
   // draft/dirty buffer), so "Save" here means "confirm the current state
-  // as a draft/published snapshot" — this brief checkmark is the feedback
-  // loop that mental model needs, since there's no unsaved-changes badge
-  // to watch instead.
-  const [savedLabel, setSavedLabel] = useState<string | null>(null);
-  const savedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // as a draft/published snapshot" — this brief checkmark (or, if the
+  // workflow doesn't yet end every path in Settle/Block, an error
+  // instead) is the feedback loop that mental model needs, since there's
+  // no unsaved-changes badge to watch instead.
+  const [statusLabel, setStatusLabel] = useState<{ text: string; tone: "success" | "error" } | null>(null);
+  const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
-      if (savedTimeoutRef.current) clearTimeout(savedTimeoutRef.current);
+      if (statusTimeoutRef.current) clearTimeout(statusTimeoutRef.current);
     };
   }, []);
 
   if (!workflow) return null;
 
+  function showStatus(text: string, tone: "success" | "error") {
+    setStatusLabel({ text, tone });
+    if (statusTimeoutRef.current) clearTimeout(statusTimeoutRef.current);
+    statusTimeoutRef.current = setTimeout(() => setStatusLabel(null), tone === "error" ? 5000 : 1800);
+  }
+
   function saveAs(label: string, state: "draft" | "published") {
+    if (!isWorkflowComplete(workflow!)) {
+      showStatus(WORKFLOW_INCOMPLETE_MESSAGE, "error");
+      return;
+    }
     setWorkflowState(workflow!.id, state);
-    setSavedLabel(label);
-    if (savedTimeoutRef.current) clearTimeout(savedTimeoutRef.current);
-    savedTimeoutRef.current = setTimeout(() => setSavedLabel(null), 1800);
+    showStatus(label, "success");
   }
 
   return (
@@ -47,9 +58,20 @@ export function BuilderToolbar({ workflowId }: { workflowId: string }) {
         </div>
         <Badge tone={workflow.state === "published" ? "success" : "neutral"}>{workflow.state}</Badge>
 
-        {savedLabel ? (
-          <span className="flex items-center gap-1 text-xs font-medium text-success">
-            <Check className="h-3.5 w-3.5" /> {savedLabel}
+        {statusLabel ? (
+          <span
+            title={statusLabel.text}
+            className={cn(
+              "flex min-w-0 max-w-md items-center gap-1 truncate text-xs font-medium",
+              statusLabel.tone === "success" ? "text-success" : "text-danger",
+            )}
+          >
+            {statusLabel.tone === "success" ? (
+              <Check className="h-3.5 w-3.5 shrink-0" />
+            ) : (
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            )}
+            {statusLabel.text}
           </span>
         ) : null}
 

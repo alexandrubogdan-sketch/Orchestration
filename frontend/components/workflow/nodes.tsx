@@ -397,13 +397,20 @@ export function ActionNodeView({ data, selected }: NodeProps<Node<WorkflowNodeDa
 
       {summary ? <div className="px-2.5 py-2 text-[11px] text-muted-foreground">{summary}</div> : null}
 
-      <AddHandleComponent
-        type="source"
-        position={Position.Bottom}
-        isConnectable
-        showButton={!isConnected(edges, node.id)}
-        onInsert={(seed: NewNodeSeed) => insertNode(workflowId, node.id, undefined, seed)}
-      />
+      {/* Settle payment / Block payment are terminal — a workflow must
+          end somewhere, and these are the only two action types allowed
+          to be that ending (see lib/workflow-validation.ts). No source
+          Handle is rendered at all for them, not just a hidden "+", so
+          there's no way to drag out a new connection from one either. */}
+      {action.type !== "settle_payment" && action.type !== "block_payment" ? (
+        <AddHandleComponent
+          type="source"
+          position={Position.Bottom}
+          isConnectable
+          showButton={!isConnected(edges, node.id)}
+          onInsert={(seed: NewNodeSeed) => insertNode(workflowId, node.id, undefined, seed)}
+        />
+      ) : null}
 
       {configuring ? (
         <ActionModal
