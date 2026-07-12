@@ -63,21 +63,29 @@ export function CanvasEdgeView({
     if (workflowId) removeEdge(workflowId, id);
   }
 
-  // BUG FIX: `highlighted` used to hardcode stroke: "#f8fafc" — a
-  // near-white slate tone that only reads against a dark canvas. In
-  // light mode (canvas.tsx's --background is #f7f8fa, effectively the
-  // same color) a "highlighted" downstream path became less visible
-  // than the unhighlighted default, which is exactly backwards and is
-  // what looked like the rest of the workflow "disappearing" on click.
-  // var(--primary) is this app's indigo accent, defined distinctly from
-  // both the light (#f7f8fa) and dark (#0b0c0f) canvas backgrounds in
-  // globals.css, so the highlighted path now reads clearly in both
-  // themes and is visually distinct from the plain gray default edge
-  // color (var(--muted-foreground), set in canvas.tsx's
-  // defaultEdgeOptions) rather than nearly matching it.
+  // `highlighted` used to hardcode stroke: "#f8fafc" — a near-white
+  // tone that only reads against a dark canvas. In light mode
+  // (canvas.tsx's --background is #f7f8fa, effectively the same color)
+  // a "highlighted" downstream path became less visible than the
+  // unhighlighted default, which is exactly backwards and is what
+  // looked like the rest of the workflow "disappearing" on click.
+  //
+  // var(--edge-highlight) (app/globals.css) restores that original
+  // white glow look in dark mode, where it reads fine against the dark
+  // canvas, but resolves to a distinct slate tone in light mode instead
+  // of white so it stays visible there too. The drop-shadow glow (using
+  // the paired --edge-highlight-glow) is what gives it the soft "light
+  // effect" look in both themes, rather than relying on the stroke
+  // color alone to read as "highlighted."
   const pathStyle = {
     ...style,
-    ...(highlighted ? { stroke: "var(--primary)", strokeWidth: 2.5 } : null),
+    ...(highlighted
+      ? {
+          stroke: "var(--edge-highlight)",
+          strokeWidth: 2.5,
+          filter: "drop-shadow(0 0 4px var(--edge-highlight-glow))",
+        }
+      : null),
     ...(dimmed ? { opacity: 0.2 } : null),
   };
 

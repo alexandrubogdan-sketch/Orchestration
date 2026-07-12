@@ -44,6 +44,16 @@
   --info: #2563eb;
   --info-bg: #dbeafe;
   --neutral-bg: #f1f5f9;
+
+  /* Workflow canvas: click-to-highlight downstream path (see
+   * components/workflow/canvas-edge.tsx). Originally a flat near-white
+   * (#f8fafc), which only reads against a dark canvas — in light mode
+   * it nearly matched --background (#f7f8fa) and made the highlighted
+   * path look like it had disappeared. Light mode gets a distinct,
+   * clearly-visible slate tone instead of white here; .dark below
+   * restores the original white glow look. */
+  --edge-highlight: #334155;
+  --edge-highlight-glow: rgba(51, 65, 85, 0.35);
 }
 
 .dark {
@@ -78,6 +88,12 @@
   --info: #60a5fa;
   --info-bg: #0c2444;
   --neutral-bg: #1c1f26;
+
+  /* Workflow canvas highlight — restores the original white glow look,
+   * which reads fine here since --background is dark (#0b0c0f). See
+   * the light-mode --edge-highlight comment in :root above. */
+  --edge-highlight: #f8fafc;
+  --edge-highlight-glow: rgba(248, 250, 252, 0.55);
 }
 
 @theme inline {
