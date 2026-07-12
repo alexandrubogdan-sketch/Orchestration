@@ -256,7 +256,7 @@ function WorkflowCanvasInner({ workflow }: { workflow: Workflow }) {
           onPaneClick={() => setFocusedEdgeId(null)}
           fitView
           proOptions={{ hideAttribution: true }}
-          defaultEdgeOptions={{ style: { stroke: "#c7cbd1" } }}
+          defaultEdgeOptions={{ style: { stroke: "var(--muted-foreground)" } }}
         >
           <Background gap={20} color="#e5e7eb" />
           <Controls showInteractive={false} />
