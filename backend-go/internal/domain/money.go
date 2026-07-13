@@ -7,6 +7,7 @@ package domain
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
@@ -154,6 +155,27 @@ func FromDecimalString(decimal string, currency string) (Money, error) {
 		return MakeMoney(whole, currency)
 	}
 
+	// BUG FIX (backend review, 2026-07-10): this used to silently
+	// truncate any fraction longer than 2 digits — `(fractionPart +
+	// "00")[:2]` takes only the first two fractional digits and simply
+	// discards the rest with no error, so "19.999" silently became
+	// Money{1999, ...} (19.99), quietly losing a real digit of precision
+	// with no signal to the caller. Per this package's own Non-negotiable
+	// #1 ("Money is integers... any float in a money path is a bug"), a
+	// caller passing a value with more precision than the currency
+	// supports is almost always evidence of an upstream bug (a rate or
+	// percentage calculation producing spurious sub-cent digits) — this
+	// function's job is to catch that, not silently paper over it. Now
+	// only accepts extra fractional digits when they are ALL zero (e.g.
+	// "19.990" is exactly 19.99 with no precision actually lost);
+	// anything with a genuinely nonzero digit past the currency's
+	// supported precision is rejected with a clear error instead.
+	if len(fractionPart) > 2 && strings.Trim(fractionPart[2:], "0") != "" {
+		return Money{}, newInvalidMoneyError(
+			"fromDecimalString: %q has more fractional precision than %s supports (max 2 digits) — round the value explicitly before calling fromDecimalString instead of relying on silent truncation",
+			decimal, currency,
+		)
+	}
 	paddedFraction := (fractionPart + "00")[:2]
 	whole, err := strconv.ParseInt(wholePart, 10, 64)
 	if err != nil {
@@ -178,9 +200,24 @@ func assertSameCurrency(a, b Money) error {
 }
 
 // Add sums two same-currency Money values.
+//
+// BUG FIX (backend review, 2026-07-10): a.minorUnits+b.minorUnits had no
+// overflow guard. Money.minorUnits is always non-negative (MakeMoney's
+// own invariant), so two large enough amounts can overflow int64 and
+// wrap around — in practice this wraps to a negative value here, which
+// MakeMoney's own `minorUnits < 0` check then rejects, but relying on
+// that incidental catch is fragile and produces a confusing "must be
+// non-negative" error that doesn't explain what actually went wrong.
+// Checking for overflow explicitly, before it happens, gives a correct,
+// clearly-worded error and doesn't depend on wraparound behavior at all.
 func Add(a, b Money) (Money, error) {
 	if err := assertSameCurrency(a, b); err != nil {
 		return Money{}, err
+	}
+	if a.minorUnits > math.MaxInt64-b.minorUnits {
+		return Money{}, newInvalidMoneyError(
+			"add() would overflow: %d + %d exceeds the maximum representable amount", a.minorUnits, b.minorUnits,
+		)
 	}
 	return MakeMoney(a.minorUnits+b.minorUnits, a.currency)
 }
@@ -205,8 +242,26 @@ func Subtract(a, b Money) (Money, error) {
 // MultiplyByInt multiplies Money by an integer factor only (e.g.
 // quantity) — never a float. (Go's type system already forbids passing
 // a float here; factor is declared int64.)
+//
+// BUG FIX (backend review, 2026-07-10): a.minorUnits*factor had no
+// overflow guard. Unlike Add's overflow case, multiplication overflow
+// does NOT reliably wrap around to a negative value — depending on the
+// exact operands, the wrapped result can land back in a small, entirely
+// plausible-looking POSITIVE int64, which MakeMoney would then happily
+// accept as a valid amount. That is a silent correctness bug, not just
+// an ugly error message: a large minorUnits times a large factor could
+// silently produce a wildly wrong (but valid-looking) charge amount. The
+// standard overflow-safe check for integer multiplication — multiply,
+// then divide back and compare — catches this before MakeMoney ever
+// sees a corrupted value.
 func MultiplyByInt(a Money, factor int64) (Money, error) {
-	return MakeMoney(a.minorUnits*factor, a.currency)
+	product := a.minorUnits * factor
+	if a.minorUnits != 0 && factor != 0 && product/factor != a.minorUnits {
+		return Money{}, newInvalidMoneyError(
+			"multiplyByInt() would overflow: %d * %d exceeds the maximum representable amount", a.minorUnits, factor,
+		)
+	}
+	return MakeMoney(product, a.currency)
 }
 
 // Allocate splits total into len(weights) non-negative integer shares
@@ -217,10 +272,20 @@ func Allocate(total Money, weights []int64) ([]Money, error) {
 	if len(weights) == 0 {
 		return nil, newInvalidMoneyError("allocate() requires at least one weight")
 	}
+	// BUG FIX (backend review, 2026-07-10): totalWeight accumulation and
+	// the total.minorUnits*weight multiplication below both previously
+	// had no overflow guard, the same class of "multiplication overflow
+	// can wrap around to a plausible-looking wrong positive value" bug
+	// described in MultiplyByInt's doc comment (not just a wraparound
+	// caught downstream by a non-negative check the way Add's does) —
+	// applied here to both the weight sum and the per-share product.
 	var totalWeight int64
 	for _, w := range weights {
 		if w < 0 {
 			return nil, newInvalidMoneyError("allocate() weights must be non-negative integers")
+		}
+		if totalWeight > math.MaxInt64-w {
+			return nil, newInvalidMoneyError("allocate() weights overflow: sum exceeds the maximum representable amount")
 		}
 		totalWeight += w
 	}
@@ -236,7 +301,13 @@ func Allocate(total Money, weights []int64) ([]Money, error) {
 		if isLast {
 			share = remaining
 		} else {
-			share = (total.minorUnits * weight) / totalWeight
+			product := total.minorUnits * weight
+			if total.minorUnits != 0 && weight != 0 && product/weight != total.minorUnits {
+				return nil, newInvalidMoneyError(
+					"allocate() would overflow: %d * %d exceeds the maximum representable amount", total.minorUnits, weight,
+				)
+			}
+			share = product / totalWeight
 		}
 		shares[i] = share
 		remaining -= share

@@ -1,8 +1,11 @@
 package routing
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -23,6 +26,12 @@ import (
 type fakeScriptRunner struct {
 	mu     sync.Mutex
 	values map[string]string
+	// getErr, if non-nil, is returned by every Get call instead of the
+	// normal found/redis.Nil result -- lets tests simulate a genuine
+	// Redis failure (as opposed to an ordinary "key not found", which is
+	// redis.Nil and NOT an error condition GetState/IsAvailable should
+	// fail open on -- that path just means "closed").
+	getErr error
 }
 
 func newFakeScriptRunner() *fakeScriptRunner {
@@ -33,6 +42,10 @@ func (f *fakeScriptRunner) Get(ctx context.Context, key string) *redis.StringCmd
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	cmd := redis.NewStringCmd(ctx, "get", key)
+	if f.getErr != nil {
+		cmd.SetErr(f.getErr)
+		return cmd
+	}
 	if v, ok := f.values[key]; ok {
 		cmd.SetVal(v)
 	} else {
@@ -258,5 +271,61 @@ func TestCircuitBreaker_RecordSuccessWhileClosedIsNoOpThatKeepsClosed(t *testing
 	// still closed.
 	if state := mustGetState(t, breaker, "psp-1"); state != BreakerStateClosed {
 		t.Fatalf("got %q, want closed", state)
+	}
+}
+
+// Regression tests for the backend review's confirmed fail-open/
+// fail-closed inconsistency (2026-07-10): IsAvailable used to
+// propagate a Redis GET failure as a hard error, which aborted routing
+// entirely (see rules.go's availablePsp/Evaluate, both of which
+// short-circuit on any error from IsAvailable) instead of treating an
+// unreadable breaker state the same as a healthy, never-tripped one.
+
+func TestCircuitBreaker_IsAvailableFailsOpenOnStoreError(t *testing.T) {
+	breaker, runner := newTestBreaker(testBreakerConfig())
+	setClock(breaker, time.Now())
+	runner.getErr = errors.New("dial tcp: connection refused")
+
+	available, err := breaker.IsAvailable(context.Background(), "psp-1")
+	if err != nil {
+		t.Fatalf("IsAvailable returned an error (%v); want nil error and fail-open behavior", err)
+	}
+	if !available {
+		t.Fatal("expected IsAvailable to fail OPEN (available=true) on a store error, got unavailable")
+	}
+}
+
+func TestCircuitBreaker_IsAvailableLogsWarningOnStoreError(t *testing.T) {
+	breaker, runner := newTestBreaker(testBreakerConfig())
+	setClock(breaker, time.Now())
+	runner.getErr = errors.New("dial tcp: connection refused")
+
+	var logBuf bytes.Buffer
+	breaker.Logger = slog.New(slog.NewTextHandler(&logBuf, nil))
+
+	if _, err := breaker.IsAvailable(context.Background(), "psp-1"); err != nil {
+		t.Fatalf("IsAvailable: %v", err)
+	}
+	if !bytes.Contains(logBuf.Bytes(), []byte("failing open")) {
+		t.Errorf("expected a fail-open warning to be logged, got: %s", logBuf.String())
+	}
+	if !bytes.Contains(logBuf.Bytes(), []byte("psp-1")) {
+		t.Errorf("expected the psp_account_id to appear in the log line, got: %s", logBuf.String())
+	}
+}
+
+// A nil Logger (the zero value every test breaker above already has)
+// must not panic IsAvailable's fail-open path.
+func TestCircuitBreaker_IsAvailableFailsOpenSilentlyWithNilLogger(t *testing.T) {
+	breaker, runner := newTestBreaker(testBreakerConfig())
+	setClock(breaker, time.Now())
+	runner.getErr = errors.New("dial tcp: connection refused")
+
+	available, err := breaker.IsAvailable(context.Background(), "psp-1")
+	if err != nil {
+		t.Fatalf("IsAvailable: %v", err)
+	}
+	if !available {
+		t.Fatal("expected available=true with a nil Logger")
 	}
 }

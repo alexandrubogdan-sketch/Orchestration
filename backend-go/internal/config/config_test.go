@@ -96,6 +96,36 @@ func TestLoad_MissingRequiredVarFailsWithClearMessage(t *testing.T) {
 	}
 }
 
+// Regression test for the backend review's confirmed credential-leak
+// bug (2026-07-10): a malformed (but non-empty) DATABASE_URL/REDIS_URL
+// — the "url" validator tag failing, not "required" — used to print the
+// field's raw value straight into the aggregated error, and Postgres/
+// Redis connection strings conventionally embed a password. The error
+// must still clearly name the offending field, just never the value.
+func TestLoad_MalformedSensitiveURLDoesNotLeakCredentials(t *testing.T) {
+	const secretPassword = "SuperSecretPassword123"
+	withEnv(t, map[string]string{
+		// The embedded "\n" guarantees url.Parse rejects this string (Go's
+		// net/url has rejected raw ASCII control characters since 1.12),
+		// so this reliably fails the "url" validator tag (not "required")
+		// — the exact code path formatFieldError's "url" case handles —
+		// while still containing a value an operator would never want
+		// printed into a log line.
+		"DATABASE_URL": "postgres://user:" + secretPassword + "@host\n/db",
+	})
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected error for malformed DATABASE_URL")
+	}
+	if !strings.Contains(err.Error(), "DATABASE_URL") {
+		t.Errorf("error does not name DATABASE_URL: %v", err)
+	}
+	if strings.Contains(err.Error(), secretPassword) {
+		t.Errorf("error leaked the credential embedded in DATABASE_URL: %v", err)
+	}
+}
+
 func TestLoad_InvalidEnumValueFails(t *testing.T) {
 	withEnv(t, map[string]string{"NODE_ENV": "staging"})
 	_, err := Load()

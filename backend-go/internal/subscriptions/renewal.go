@@ -17,6 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/alphapayments/payment-orchestrator/internal/adapters"
@@ -24,6 +25,13 @@ import (
 	"github.com/alphapayments/payment-orchestrator/internal/domain"
 	"github.com/alphapayments/payment-orchestrator/internal/webhooks"
 )
+
+// postgresUniqueViolationCode is Postgres's SQLSTATE for a unique-
+// constraint violation (23505) — used below to recognize a race on
+// payments_idempotency_key_key (see
+// db/migrations/1735776500000_payments-idempotency-key-unique.up.sql)
+// as the benign, expected outcome it is, rather than a generic error.
+const postgresUniqueViolationCode = "23505"
 
 // ChargeDeps is everything AttemptSubscriptionCharge needs.
 type ChargeDeps struct {
@@ -139,6 +147,28 @@ func AttemptSubscriptionCharge(ctx context.Context, deps ChargeDeps, subscriptio
 		subscription.AmountMinorUnits, subscription.Currency, routingDecision, idempotencyKey, subscription.ID,
 	)
 	if err != nil {
+		// BUG FIX (backend review, 2026-07-10): the SELECT-then-INSERT
+		// idempotency check above (lines ~85-95) is NOT atomic — two
+		// concurrent calls to AttemptSubscriptionCharge for the same
+		// idempotencyKey (e.g. the renewal dispatcher and the dunning
+		// cron racing on the same subscription cycle, or two overlapping
+		// worker runs) can both pass the SELECT before either commits its
+		// INSERT, and the second INSERT then hits
+		// payments_idempotency_key_key's unique constraint and fails with
+		// Postgres SQLSTATE 23505 (unique_violation). That is the EXACT
+		// same "already billed/attempted for this idempotency key"
+		// situation the SELECT above treats as a harmless no-op
+		// (`return nil, nil`) — it was only reached a few lines later
+		// than the SELECT would have caught it, purely due to the race.
+		// Treating a 23505 here as a hard error (the previous behavior)
+		// would surface a spurious failure — and, worse, could trip the
+		// dunning ladder or alerting on a charge that in fact succeeded
+		// under the OTHER concurrent caller — for what is actually a
+		// successful idempotent no-op. Recognize it explicitly instead.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == postgresUniqueViolationCode {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("subscriptions: insert payments row for subscription %s: %w", subscription.ID, err)
 	}
 
@@ -165,6 +195,7 @@ func AttemptSubscriptionCharge(ctx context.Context, deps ChargeDeps, subscriptio
 		IdempotencyKey: pspIdempotencyKey,
 		CaptureMethod:  adapters.CaptureMethodAutomatic,
 		CustomerEmail:  customerEmail,
+		CollectTax:     subscription.CollectTax,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("subscriptions: adapter.CreatePayment for subscription %s: %w", subscription.ID, err)

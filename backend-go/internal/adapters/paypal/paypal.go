@@ -257,15 +257,26 @@ func (a *Adapter) getAccessToken(ctx context.Context) (string, error) {
 // {"currency_code", "value"} decimal-string amount shape (see
 // statusmapping.go's Amount doc comment for why PayPal takes a decimal
 // string rather than integer minor units, unlike Stripe/Solidgate).
-// FLAGGED: assumes every currency this codebase's domain.Money
-// supports uses exactly 2 minor-unit decimal places (true for
-// USD/EUR/GBP, the same three currencies stripe.go/solidgate.go's own
-// Capabilities() advertise) — PayPal's documented amount.value format
-// does vary by currency's actual minor-unit exponent (e.g. JPY has
-// none), which this function does not yet handle; not reachable today
-// since Capabilities() below only advertises USD/EUR/GBP.
+//
+// BUG FIX (backend review, 2026-07-10): zero-decimal currency handling.
+// This function used to unconditionally assume every currency uses
+// exactly 2 minor-unit decimal places — true for USD/EUR/GBP (the only
+// three currencies Capabilities() below advertises today, so this was
+// never reachable with a wrong answer in production), but PayPal's
+// documented amount.value format follows the same zero-decimal
+// distinction Stripe/Solidgate's own request shapes do (see
+// domain.ZeroDecimalCurrencies' doc comment: "minor units ARE the whole
+// unit for these currencies — JPY 100 means ¥100, not ¥1.00"): a
+// zero-decimal currency's PayPal value is the bare integer ("100"), not
+// "1.00". domain.MakeMoney already accepts JPY/KRW/etc (they're in
+// domain.KnownCurrencies), so this was a landmine waiting for
+// Capabilities() to be extended, not a purely theoretical gap — fixed
+// now, before that extension, rather than after.
 func amountToPayPalValue(amount domain.Money) string {
 	minorUnits := amount.MinorUnits()
+	if domain.IsZeroDecimalCurrency(amount.Currency()) {
+		return fmt.Sprintf("%d", minorUnits)
+	}
 	whole := minorUnits / 100
 	fraction := minorUnits % 100
 	if fraction < 0 {
@@ -277,8 +288,19 @@ func amountToPayPalValue(amount domain.Money) string {
 // payPalValueToMinorUnits converts a PayPal decimal-string amount
 // value back into integer minor units, the inverse of
 // amountToPayPalValue, for constructing a domain.Money from a PayPal
-// response (e.g. Refund's Amount).
-func payPalValueToMinorUnits(value string) (int64, error) {
+// response (e.g. Refund's Amount). currency decides which of
+// amountToPayPalValue's two encodings value is in — see that function's
+// BUG FIX doc comment for the zero-decimal case this now mirrors on the
+// way back in.
+func payPalValueToMinorUnits(value string, currency string) (int64, error) {
+	if domain.IsZeroDecimalCurrency(currency) {
+		whole, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return 0, err
+		}
+		return whole, nil
+	}
+
 	parts := strings.SplitN(value, ".", 2)
 	wholePart := parts[0]
 	fractionPart := "00"
@@ -412,7 +434,12 @@ func (a *Adapter) CreatePayment(ctx context.Context, input adapters.CreatePaymen
 // codebase has today).
 func (a *Adapter) Capture(ctx context.Context, pspAttemptRef string, amount *domain.Money, idempotencyKey string) (adapters.AttemptResult, error) {
 	_ = amount // see doc comment: PayPal's order-capture endpoint takes no amount parameter.
-	path := fmt.Sprintf("/v2/checkout/orders/%s/capture", pspAttemptRef)
+	// BUG FIX (backend review, 2026-07-10): url.PathEscape guards against
+	// path injection if pspAttemptRef ever contains a "/", "?", or other
+	// URL-structural character — see doJSON's doc comment for why this
+	// path is concatenated onto APIBaseURL with no re-parsing/escaping
+	// of its own to catch this later.
+	path := fmt.Sprintf("/v2/checkout/orders/%s/capture", url.PathEscape(pspAttemptRef))
 	respBytes, status, err := a.doJSON(ctx, http.MethodPost, path, map[string]any{}, idempotencyKey)
 	if err != nil {
 		return adapters.AttemptResult{}, err
@@ -450,7 +477,7 @@ func (a *Adapter) CaptureAuthorization(ctx context.Context, authorizationID stri
 			"value":         amountToPayPalValue(*amount),
 		}
 	}
-	path := fmt.Sprintf("/v2/payments/authorizations/%s/capture", authorizationID)
+	path := fmt.Sprintf("/v2/payments/authorizations/%s/capture", url.PathEscape(authorizationID))
 	respBytes, status, err := a.doJSON(ctx, http.MethodPost, path, body, idempotencyKey)
 	if err != nil {
 		return adapters.AttemptResult{}, err
@@ -485,7 +512,7 @@ func (a *Adapter) CaptureAuthorization(ctx context.Context, authorizationID stri
 // void/refund need) — a documented, non-guessed resolution step, not a
 // silently patched id-shape assumption.
 func (a *Adapter) resolveOrder(ctx context.Context, orderID string) (*Order, error) {
-	path := fmt.Sprintf("/v2/checkout/orders/%s", orderID)
+	path := fmt.Sprintf("/v2/checkout/orders/%s", url.PathEscape(orderID))
 	respBytes, status, err := a.doJSON(ctx, http.MethodGet, path, nil, "")
 	if err != nil {
 		return nil, err
@@ -542,7 +569,7 @@ func (a *Adapter) Void(ctx context.Context, pspAttemptRef string, idempotencyKey
 		return adapters.AttemptResult{}, &TechnicalError{PSP: "paypal", Message: fmt.Sprintf("paypal void: order %s has no authorization to void (purchase_units[0].payments.authorizations is empty)", pspAttemptRef)}
 	}
 
-	path := fmt.Sprintf("/v2/payments/authorizations/%s/void", authorization.ID)
+	path := fmt.Sprintf("/v2/payments/authorizations/%s/void", url.PathEscape(authorization.ID))
 	respBytes, status, err := a.doJSON(ctx, http.MethodPost, path, nil, idempotencyKey)
 	if err != nil {
 		return adapters.AttemptResult{}, err
@@ -600,7 +627,7 @@ func (a *Adapter) Refund(ctx context.Context, pspAttemptRef string, amount domai
 			"value":         amountToPayPalValue(amount),
 		},
 	}
-	path := fmt.Sprintf("/v2/payments/captures/%s/refund", capture.ID)
+	path := fmt.Sprintf("/v2/payments/captures/%s/refund", url.PathEscape(capture.ID))
 	respBytes, status, err := a.doJSON(ctx, http.MethodPost, path, body, idempotencyKey)
 	if err != nil {
 		return adapters.RefundResult{}, err
@@ -624,7 +651,7 @@ func (a *Adapter) Refund(ctx context.Context, pspAttemptRef string, amount domai
 
 	resultAmount := amount
 	if refund.Amount != nil {
-		minorUnits, convErr := payPalValueToMinorUnits(refund.Amount.Value)
+		minorUnits, convErr := payPalValueToMinorUnits(refund.Amount.Value, refund.Amount.CurrencyCode)
 		if convErr == nil {
 			if converted, moneyErr := domain.MakeMoney(minorUnits, refund.Amount.CurrencyCode); moneyErr == nil {
 				resultAmount = converted
@@ -646,7 +673,7 @@ func (a *Adapter) Refund(ctx context.Context, pspAttemptRef string, amount domai
 // CreatePayment/Capture would have returned, mirroring
 // stripe.Adapter.GetPayment's PaymentIntents.Get + Expand pattern.
 func (a *Adapter) GetPayment(ctx context.Context, pspAttemptRef string) (adapters.AttemptSnapshot, error) {
-	path := fmt.Sprintf("/v2/checkout/orders/%s", pspAttemptRef)
+	path := fmt.Sprintf("/v2/checkout/orders/%s", url.PathEscape(pspAttemptRef))
 	respBytes, status, err := a.doJSON(ctx, http.MethodGet, path, nil, "")
 	if err != nil {
 		return adapters.AttemptSnapshot{}, err
@@ -727,11 +754,11 @@ type verifyWebhookSignatureResponse struct {
 // code path too (getAccessToken's cache), coupling webhook
 // verification's latency to token-refresh latency on a cold cache.
 func (a *Adapter) VerifyWebhook(rawBody []byte, headers map[string][]string) (adapters.VerifiedEvent, error) {
-	authAlgo := firstHeader(headers, "paypal-auth-algo")
-	certURL := firstHeader(headers, "paypal-cert-url")
-	transmissionID := firstHeader(headers, "paypal-transmission-id")
-	transmissionSig := firstHeader(headers, "paypal-transmission-sig")
-	transmissionTime := firstHeader(headers, "paypal-transmission-time")
+	authAlgo := adapters.FirstHeader(headers, "paypal-auth-algo")
+	certURL := adapters.FirstHeader(headers, "paypal-cert-url")
+	transmissionID := adapters.FirstHeader(headers, "paypal-transmission-id")
+	transmissionSig := adapters.FirstHeader(headers, "paypal-transmission-sig")
+	transmissionTime := adapters.FirstHeader(headers, "paypal-transmission-time")
 	if authAlgo == "" || certURL == "" || transmissionID == "" || transmissionSig == "" || transmissionTime == "" {
 		return adapters.VerifiedEvent{}, adapters.NewInvalidSignatureError("paypal", "missing one or more PAYPAL-* transmission headers")
 	}
@@ -988,44 +1015,11 @@ func asWebhookEvent(rawPayload any) (*WebhookEvent, bool) {
 	}
 }
 
-// firstHeader looks up key case-insensitively and returns the first
-// value, or "" if absent.
-//
-// BUG FIX (backend audit, 2026-07-07): this used to be a bare
-// `headers[key]` map lookup against a lowercase literal (e.g.
-// "stripe-signature", "paypal-auth-algo", "x-mock-signature"). That
-// was correct against every existing unit test in this package
-// (which all hand-build `map[string][]string{"stripe-signature": ...}`
-// with lowercase keys directly) but WRONG against the actual
-// production call site: internal/api/webhooks.go passes `r.Header`
-// (Go's net/http.Header) straight through internal/webhooks.Ingest
-// into this method. net/http's server ALWAYS canonicalizes incoming
-// header keys via textproto.CanonicalMIMEHeaderKey before populating
-// r.Header — "stripe-signature" becomes "Stripe-Signature",
-// "paypal-auth-algo" becomes "Paypal-Auth-Algo", etc. A bare
-// case-sensitive map lookup with a lowercase literal therefore NEVER
-// matched a real incoming request's headers, meaning every genuine
-// webhook from every PSP would silently fail signature verification
-// (VerifyWebhook would read "" for every header, fail to verify, and
-// return *adapters.InvalidSignatureError) while every unit test still
-// passed, because the tests bypass net/http entirely and hand-build
-// already-lowercase maps. This is a fail-CLOSED bug (rejects real
-// webhooks rather than accepting forged ones -- no security
-// regression from this specific defect), but it is a complete
-// functional break of the webhook ingestion pipeline against real PSP
-// traffic. Fixed by scanning all keys with strings.EqualFold instead
-// of an exact map lookup, which is correct regardless of whether the
-// caller passes canonicalized net/http headers (real traffic) or
-// lowercase literals (every existing test) -- no test needed to
-// change.
-func firstHeader(headers map[string][]string, key string) string {
-	if headers == nil {
-		return ""
-	}
-	for k, values := range headers {
-		if strings.EqualFold(k, key) && len(values) > 0 {
-			return values[0]
-		}
-	}
-	return ""
-}
+// firstHeader used to live here as its own copy — DEDUPLICATION fix
+// (backend review, 2026-07-10): identical byte-for-byte to the copy
+// every other PSP adapter package (stripe, solidgate, mock) also
+// carried. Hoisted into the shared internal/adapters package (already
+// imported by every adapter) as adapters.FirstHeader — see that
+// function's doc comment for the full history, including the original
+// 2026-07-07 case-insensitivity bug fix this preserves. Every call site
+// above now calls adapters.FirstHeader directly.

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -236,7 +237,34 @@ func (m *AuthMiddleware) Middleware(next http.Handler) http.Handler {
 
 		row, err := m.deps.Tokens.Lookup(r.Context(), HashAPIToken(token))
 		if err != nil {
-			WriteProblem(w, http.StatusUnauthorized, "Missing or invalid API token", "")
+			// BUG FIX (backend review, 2026-07-10): this used to map EVERY
+			// Lookup error to 401 "Missing or invalid API token" — that's
+			// correct for ErrTokenNotFound (PgxTokenStore.Lookup returns it
+			// specifically for pgx.ErrNoRows, i.e. an actually-missing/
+			// revoked token — see pgstore.go), but a transient failure
+			// (a dropped connection, a query timeout, Postgres itself being
+			// briefly unavailable) is a completely different situation:
+			// every legitimate caller's real, valid token would ALSO get
+			// rejected as "invalid" during an outage, with nothing logged
+			// to distinguish "the database is down" from "someone is
+			// hammering us with bad tokens" — the single worst time to lose
+			// that signal. Now: only a genuine ErrTokenNotFound is a 401;
+			// anything else is a 500, logged with the actual error, exactly
+			// matching this package's standing convention elsewhere
+			// (createPaymentHandler, RecordAttempt, ...) of surfacing
+			// infrastructure failures as 500s rather than silently
+			// reinterpreting them as a client-side auth problem.
+			if errors.Is(err, ErrTokenNotFound) {
+				WriteProblem(w, http.StatusUnauthorized, "Missing or invalid API token", "")
+				return
+			}
+			if m.deps.Logger != nil {
+				m.deps.Logger.Error("token lookup failed",
+					"error", err,
+					"request_id", middleware.GetReqID(r.Context()),
+				)
+			}
+			WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 			return
 		}
 

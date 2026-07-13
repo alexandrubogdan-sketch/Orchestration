@@ -59,7 +59,12 @@ func Normalize(ctx context.Context, deps Deps, inboxID string) error {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("webhooks: webhook_inbox row %s not found for normalize", inboxID)
 		}
-		return fmt.Errorf("webhooks: query webhook_inbox row %s: %w", inboxID, err)
+		// BUG FIX (Stripe integration audit, 2026-07-12): the row's own
+		// psp isn't known yet (this SELECT is what would have told us),
+		// so "unknown" is the best available metrics label here — see
+		// recordFailureAndWrapError's doc comment for why every other
+		// bare-error return in this function now goes through it too.
+		return recordFailureAndWrapError(ctx, deps, inboxID, "unknown", fmt.Errorf("webhooks: query webhook_inbox row %s: %w", inboxID, err))
 	}
 
 	// Redelivery of a row that's already past 'pending': a no-op, not
@@ -89,17 +94,17 @@ func Normalize(ctx context.Context, deps Deps, inboxID string) error {
 			}
 			return fmt.Errorf("webhooks: psp_account %s referenced by inbox row %s no longer exists", *row.PspAccountID, row.ID)
 		}
-		return fmt.Errorf("webhooks: query psp_accounts row %s: %w", *row.PspAccountID, err)
+		return recordFailureAndWrapError(ctx, deps, row.ID, row.PSP, fmt.Errorf("webhooks: query psp_accounts row %s: %w", *row.PspAccountID, err))
 	}
 
 	adapter, err := deps.Registry.Resolve(account.toRegistryAccount())
 	if err != nil {
-		return fmt.Errorf("webhooks: resolve adapter for psp_account %s: %w", account.ID, err)
+		return recordFailureAndWrapError(ctx, deps, row.ID, row.PSP, fmt.Errorf("webhooks: resolve adapter for psp_account %s: %w", account.ID, err))
 	}
 
 	var rawPayload any
 	if err := json.Unmarshal(row.RawPayload, &rawPayload); err != nil {
-		return fmt.Errorf("webhooks: unmarshal raw_payload for inbox %s: %w", row.ID, err)
+		return recordFailureAndWrapError(ctx, deps, row.ID, row.PSP, fmt.Errorf("webhooks: unmarshal raw_payload for inbox %s: %w", row.ID, err))
 	}
 
 	events := adapter.NormalizeEvent(rawPayload)
@@ -111,7 +116,7 @@ func Normalize(ctx context.Context, deps Deps, inboxID string) error {
 			row.ID,
 		)
 		if err != nil {
-			return fmt.Errorf("webhooks: mark webhook_inbox %s processed (zero events): %w", row.ID, err)
+			return recordFailureAndWrapError(ctx, deps, row.ID, row.PSP, fmt.Errorf("webhooks: mark webhook_inbox %s processed (zero events): %w", row.ID, err))
 		}
 		return nil
 	}
@@ -127,7 +132,7 @@ func Normalize(ctx context.Context, deps Deps, inboxID string) error {
 			if err == nil {
 				paymentID = &resolvedPaymentID
 			} else if !errors.Is(err, pgx.ErrNoRows) {
-				return fmt.Errorf("webhooks: query payment_attempts by psp_attempt_ref %s: %w", *pspAttemptRef, err)
+				return recordFailureAndWrapError(ctx, deps, row.ID, row.PSP, fmt.Errorf("webhooks: query payment_attempts by psp_attempt_ref %s: %w", *pspAttemptRef, err))
 			}
 		}
 	}

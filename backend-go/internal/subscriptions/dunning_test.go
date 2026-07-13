@@ -166,3 +166,57 @@ func TestEvaluateDunningStep_ZeroTimeDefaultsToNow(t *testing.T) {
 		t.Errorf("NextRetryAt = %v, want within [%v, %v] (24h after 'now')", decision.NextRetryAt, lowerBound, upperBound)
 	}
 }
+
+// Regression tests for the backend review's confirmed dead-configuration
+// fix (2026-07-10): MinSpacingSeconds used to have zero effect on
+// dunning retry timing no matter what value a merchant configured — see
+// DunningConfig.MinSpacingSeconds's own doc comment for the full root
+// cause. These tests pin down that it is now enforced as a real floor
+// under the ladder-hour delay.
+
+// TestEvaluateDunningStep_MinSpacingBelowLadderDelay_HasNoEffect proves
+// the fix is a pure floor, not a replacement: with the shipped default
+// (2s) and any real ladder-hours entry, MinSpacingSeconds never changes
+// behavior — matching every pre-existing test in this file that asserts
+// exact ladder-hour delays via DefaultDunningConfig().
+func TestEvaluateDunningStep_MinSpacingBelowLadderDelay_HasNoEffect(t *testing.T) {
+	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+	config := DunningConfig{LadderHours: []int{24, 72, 168}, MinSpacingSeconds: 2}
+	decision := EvaluateDunningStep(0, now, config)
+
+	wantRetryAt := now.Add(24 * time.Hour)
+	if decision.NextRetryAt == nil || !decision.NextRetryAt.Equal(wantRetryAt) {
+		t.Errorf("NextRetryAt = %v, want %v (24h ladder delay, unaffected by a 2s floor)", decision.NextRetryAt, wantRetryAt)
+	}
+}
+
+// TestEvaluateDunningStep_MinSpacingAboveLadderDelay_EnforcesFloor is the
+// core regression: a merchant configuring an unusually short ladder step
+// (here, 0 hours — retry "immediately") must still never be scheduled
+// sooner than MinSpacingSeconds after now. Before this fix,
+// MinSpacingSeconds had no code path that ever read it, so this exact
+// scenario would have scheduled NextRetryAt at now+0, ignoring the
+// configured floor entirely.
+func TestEvaluateDunningStep_MinSpacingAboveLadderDelay_EnforcesFloor(t *testing.T) {
+	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
+	config := DunningConfig{LadderHours: []int{0, 72}, MinSpacingSeconds: 300}
+	decision := EvaluateDunningStep(0, now, config)
+
+	if !decision.Allowed {
+		t.Fatalf("expected stage 0 to be allowed, got Allowed=false reason=%q", decision.Reason)
+	}
+	wantRetryAt := now.Add(300 * time.Second)
+	if decision.NextRetryAt == nil || !decision.NextRetryAt.Equal(wantRetryAt) {
+		t.Errorf("NextRetryAt = %v, want %v (300s MinSpacingSeconds floor, since the 0h ladder delay is smaller)", decision.NextRetryAt, wantRetryAt)
+	}
+}
+
+// TestDefaultDunningConfig_MinSpacingSecondsIsTwo pins down the shared
+// default (mirrors internal/api/retry_settings.go's
+// DefaultMinSpacingSeconds constant) so the two layers cannot silently
+// drift apart again.
+func TestDefaultDunningConfig_MinSpacingSecondsIsTwo(t *testing.T) {
+	if got := DefaultDunningConfig().MinSpacingSeconds; got != 2 {
+		t.Errorf("DefaultDunningConfig().MinSpacingSeconds = %d, want 2", got)
+	}
+}

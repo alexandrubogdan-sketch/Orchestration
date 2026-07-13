@@ -196,7 +196,7 @@ func TestWithIdempotencyKey_TableDriven(t *testing.T) {
 
 	for _, s := range steps {
 		t.Run(s.name, func(t *testing.T) {
-			outcome, err := WithIdempotencyKey(context.Background(), deps, s.key,
+			outcome, err := WithIdempotencyKey(context.Background(), deps, "test-scope", s.key,
 				IdempotentRequestDescriptor{Method: "POST", Path: "/v1/payments", Body: s.body}, handler)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -215,7 +215,7 @@ func TestWithIdempotencyKey_TableDriven(t *testing.T) {
 	}
 
 	t.Run("same key + different body is a conflict", func(t *testing.T) {
-		_, err := WithIdempotencyKey(context.Background(), deps, "key-1",
+		_, err := WithIdempotencyKey(context.Background(), deps, "test-scope", "key-1",
 			IdempotentRequestDescriptor{Method: "POST", Path: "/v1/payments", Body: map[string]any{"amount": float64(999)}}, handler)
 		var conflict *IdempotencyConflictError
 		if !errors.As(err, &conflict) {
@@ -235,13 +235,13 @@ func TestWithIdempotencyKey_TableDriven(t *testing.T) {
 			return IdempotentResult{Status: 201, Body: map[string]any{"ok": true}}, nil
 		}
 
-		_, err := WithIdempotencyKey(context.Background(), deps, key,
+		_, err := WithIdempotencyKey(context.Background(), deps, "test-scope", key,
 			IdempotentRequestDescriptor{Method: "POST", Path: "/v1/payments", Body: body}, flaky)
 		if err == nil || err.Error() != "simulated transient failure" {
 			t.Fatalf("expected the original error to propagate, got %v", err)
 		}
 
-		outcome, err := WithIdempotencyKey(context.Background(), deps, key,
+		outcome, err := WithIdempotencyKey(context.Background(), deps, "test-scope", key,
 			IdempotentRequestDescriptor{Method: "POST", Path: "/v1/payments", Body: body}, flaky)
 		if err != nil {
 			t.Fatalf("expected retry to succeed, got %v", err)
@@ -253,6 +253,72 @@ func TestWithIdempotencyKey_TableDriven(t *testing.T) {
 			t.Errorf("expected exactly 2 attempts, got %d", attempt)
 		}
 	})
+}
+
+// TestWithIdempotencyKey_PanicRecovery guards against a regression of a
+// real bug found in the 2026-07 backend review: WithIdempotencyKey used
+// to call handler(ctx) with no recover at all, so a panicking handler
+// left its idempotency_keys row permanently wedged in_progress — no
+// subsequent retry with the same key could ever succeed, since nothing
+// else in this package's flow ever deletes or completes a row once
+// pollForCompletion's pollTimeout has elapsed. This test asserts both
+// halves of the fix: (1) the panic still propagates out of
+// WithIdempotencyKey (it must — this package deliberately relies on the
+// existing top-level recoverMiddleware in router.go to convert panics
+// into a logged 500, not swallow them here), and (2) the in_progress
+// row is gone afterward, so an immediate retry with the same key gets a
+// fresh attempt instead of IdempotencyStillInProgressError.
+func TestWithIdempotencyKey_PanicRecovery(t *testing.T) {
+	store := newFakeIdempotencyStore()
+	cache := newFakeIdempotencyCache()
+	deps := IdempotencyDeps{Store: store, Cache: cache}
+
+	key := "panic-key"
+	body := map[string]any{"amount": float64(1)}
+	request := IdempotentRequestDescriptor{Method: "POST", Path: "/v1/payments", Body: body}
+
+	panicking := func(ctx context.Context) (IdempotentResult, error) {
+		panic("simulated nil pointer dereference deep in a PSP adapter")
+	}
+
+	func() {
+		defer func() {
+			r := recover()
+			if r == nil {
+				t.Fatal("expected the panic to propagate out of WithIdempotencyKey, got no panic")
+			}
+			if r != "simulated nil pointer dereference deep in a PSP adapter" {
+				t.Errorf("recovered value = %v, want the original panic value unchanged", r)
+			}
+		}()
+		_, _ = WithIdempotencyKey(context.Background(), deps, "test-scope", key, request, panicking)
+		t.Fatal("unreachable: WithIdempotencyKey should have panicked")
+	}()
+
+	if _, err := store.Get(context.Background(), scopeIdempotencyKey("test-scope", key)); !errors.Is(err, ErrIdempotencyKeyNotFound) {
+		t.Errorf("expected the in_progress row to be deleted after the panic, Get returned err=%v", err)
+	}
+
+	// A fresh, non-panicking retry with the identical key must now run
+	// the handler for real rather than getting stuck polling a
+	// nonexistent row (IdempotencyStillInProgressError) — proving the
+	// key was actually cleaned up, not just observably absent from one
+	// direct store.Get call.
+	ranAgain := false
+	outcome, err := WithIdempotencyKey(context.Background(), deps, "test-scope", key, request,
+		func(ctx context.Context) (IdempotentResult, error) {
+			ranAgain = true
+			return IdempotentResult{Status: 201, Body: map[string]any{"ok": true}}, nil
+		})
+	if err != nil {
+		t.Fatalf("expected the retry after a panic to succeed, got %v", err)
+	}
+	if !ranAgain {
+		t.Error("expected the retry's handler to actually run (a fresh attempt), not replay a stale state")
+	}
+	if outcome.Replayed {
+		t.Error("expected a fresh, non-replayed execution after the panicking attempt's row was cleared")
+	}
 }
 
 // TestWithIdempotencyKey_ConcurrentIdenticalRequests mirrors
@@ -288,7 +354,7 @@ func TestWithIdempotencyKey_ConcurrentIdenticalRequests(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			outcome, err := WithIdempotencyKey(context.Background(), deps, key,
+			outcome, err := WithIdempotencyKey(context.Background(), deps, "test-scope", key,
 				IdempotentRequestDescriptor{Method: "POST", Path: "/v1/payments", Body: body}, handler)
 			results[i] = outcome
 			errs[i] = err

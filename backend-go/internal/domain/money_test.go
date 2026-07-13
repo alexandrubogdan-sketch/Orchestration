@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"math"
 	"math/rand"
 	"testing"
 )
@@ -290,5 +291,85 @@ func TestToDisplayString_ZeroDecimalCurrencies(t *testing.T) {
 	m, _ := MakeMoney(500, "JPY")
 	if got := ToDisplayString(m); got != "500 JPY" {
 		t.Errorf("ToDisplayString(500 JPY) = %q, want %q", got, "500 JPY")
+	}
+}
+
+// Regression test for the backend review's confirmed silent-truncation
+// bug (2026-07-10): FromDecimalString must now REJECT a fraction with
+// genuine precision beyond 2 digits instead of quietly discarding it.
+func TestFromDecimalString_RejectsExcessFractionalPrecision(t *testing.T) {
+	for _, bad := range []string{"19.999", "0.001", "-5.123"} {
+		if _, err := FromDecimalString(bad, "USD"); err == nil {
+			t.Errorf("expected error for %q (more than 2 significant fractional digits), got none", bad)
+		} else if _, ok := err.(*InvalidMoneyError); !ok {
+			t.Errorf("expected *InvalidMoneyError for %q, got %T", bad, err)
+		}
+	}
+}
+
+// A fraction longer than 2 digits that is exactly representable in 2
+// digits (every digit past position 2 is zero) loses no real precision
+// and must still be accepted — the fix targets ACTUAL precision loss,
+// not merely "more than 2 characters after the decimal point".
+func TestFromDecimalString_AcceptsTrailingZeroFraction(t *testing.T) {
+	m, err := FromDecimalString("19.990", "USD")
+	if err != nil {
+		t.Fatalf("unexpected error for a trailing-zero fraction: %v", err)
+	}
+	if m.MinorUnits() != 1999 {
+		t.Errorf("MinorUnits() = %d, want 1999", m.MinorUnits())
+	}
+}
+
+// Regression tests for the backend review's confirmed missing-overflow-
+// guard bug (2026-07-10): Add, MultiplyByInt, and Allocate must all
+// reject an operation that would overflow int64 rather than silently
+// wrapping around to an incorrect (and, for multiplication, potentially
+// plausible-looking positive) amount.
+func TestAdd_RejectsOverflow(t *testing.T) {
+	a, _ := MakeMoney(math.MaxInt64-1, "USD")
+	b, _ := MakeMoney(2, "USD")
+	if _, err := Add(a, b); err == nil {
+		t.Error("expected overflow error, got none")
+	} else if _, ok := err.(*InvalidMoneyError); !ok {
+		t.Errorf("expected *InvalidMoneyError, got %T", err)
+	}
+}
+
+func TestMultiplyByInt_RejectsOverflow(t *testing.T) {
+	a, _ := MakeMoney(math.MaxInt64/2, "USD")
+	if _, err := MultiplyByInt(a, 3); err == nil {
+		t.Error("expected overflow error, got none")
+	} else if _, ok := err.(*InvalidMoneyError); !ok {
+		t.Errorf("expected *InvalidMoneyError, got %T", err)
+	}
+}
+
+func TestMultiplyByInt_ZeroFactorNeverOverflows(t *testing.T) {
+	a, _ := MakeMoney(math.MaxInt64, "USD")
+	result, err := MultiplyByInt(a, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.MinorUnits() != 0 {
+		t.Errorf("MinorUnits() = %d, want 0", result.MinorUnits())
+	}
+}
+
+func TestAllocate_RejectsWeightSumOverflow(t *testing.T) {
+	total, _ := MakeMoney(100, "USD")
+	if _, err := Allocate(total, []int64{math.MaxInt64 - 1, 2}); err == nil {
+		t.Error("expected overflow error for weights summing beyond int64, got none")
+	} else if _, ok := err.(*InvalidMoneyError); !ok {
+		t.Errorf("expected *InvalidMoneyError, got %T", err)
+	}
+}
+
+func TestAllocate_RejectsShareMultiplicationOverflow(t *testing.T) {
+	total, _ := MakeMoney(math.MaxInt64/2, "USD")
+	if _, err := Allocate(total, []int64{3, 1}); err == nil {
+		t.Error("expected overflow error for total*weight exceeding int64, got none")
+	} else if _, ok := err.(*InvalidMoneyError); !ok {
+		t.Errorf("expected *InvalidMoneyError, got %T", err)
 	}
 }

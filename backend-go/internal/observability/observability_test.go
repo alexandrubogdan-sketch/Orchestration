@@ -34,6 +34,41 @@ func TestStartTracing_InitializesWithoutError(t *testing.T) {
 	}
 }
 
+// Regression tests for the backend review's confirmed double-call gap
+// (2026-07-10): a second StartTracing call before the first one's
+// Shutdown ran used to silently replace the global TracerProvider,
+// orphaning the first one with no error or warning of any kind.
+func TestStartTracing_SecondCallWithoutShutdownReturnsError(t *testing.T) {
+	shutdown, err := StartTracing(TracerConfig{ServiceName: "test-service-a"})
+	if err != nil {
+		t.Fatalf("first StartTracing error: %v", err)
+	}
+	defer func() { _ = shutdown(context.Background()) }()
+
+	_, err = StartTracing(TracerConfig{ServiceName: "test-service-b"})
+	if err == nil {
+		t.Fatal("expected an error from a second StartTracing call before the first Shutdown ran, got nil")
+	}
+}
+
+func TestStartTracing_CanRestartAfterShutdown(t *testing.T) {
+	shutdown, err := StartTracing(TracerConfig{ServiceName: "test-service-c"})
+	if err != nil {
+		t.Fatalf("first StartTracing error: %v", err)
+	}
+	if err := shutdown(context.Background()); err != nil {
+		t.Fatalf("shutdown error: %v", err)
+	}
+
+	shutdown2, err := StartTracing(TracerConfig{ServiceName: "test-service-d"})
+	if err != nil {
+		t.Fatalf("StartTracing after Shutdown should succeed, got error: %v", err)
+	}
+	if err := shutdown2(context.Background()); err != nil {
+		t.Fatalf("second shutdown error: %v", err)
+	}
+}
+
 func TestGetTracer_ReturnsNonNilTracer(t *testing.T) {
 	tracer := GetTracer("test")
 	if tracer == nil {

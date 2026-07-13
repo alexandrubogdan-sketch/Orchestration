@@ -146,6 +146,24 @@ type CreatePaymentInput struct {
 	// its documented gap (no_3ds cannot force-skip issuer-mandated 3DS
 	// on Stripe).
 	ThreeDsMode *ThreeDsMode
+	// CollectTax (Stripe integration audit, 2026-07-12, Task #317): when
+	// true, the adapter should turn on PSP-native automatic tax
+	// calculation/collection for this charge, if it supports one.
+	// Populated from a plans.go Plan's tax_collection setting
+	// ('disabled' -> false; 'enabled'/'global' -> true — see
+	// internal/api/subscriptions.go and internal/worker/tasks.go for
+	// where a subscription's originating plan's setting is resolved and
+	// threaded through to here) or left false for a checkout/one-off
+	// payment with no backing plan at all. Currently only the Stripe
+	// adapter acts on this (sets automatic_tax[enabled] on the
+	// PaymentIntent, i.e. Stripe Tax — see stripe.go's CreatePayment);
+	// the mock/Solidgate/PayPal adapters silently ignore it — Solidgate
+	// and PayPal do not have an equivalent "let the PSP compute tax for
+	// me" primitive documented for this port to wire against, and
+	// leaving this false-by-default there is a safe no-op, not a
+	// silently-wrong behavior (no tax was ever being auto-collected on
+	// those PSPs before this field existed either).
+	CollectTax bool
 }
 
 // AttemptResult is the canonical response shape every adapter's
@@ -397,4 +415,26 @@ type PspAdapter interface {
 	// a legitimate response, not a bug, for a PSP whose account updates
 	// arrive some other way (or not at all through this integration).
 	ListAccountUpdates(ctx context.Context, sinceISO string) ([]AccountUpdateRecord, error)
+}
+
+// BillingPortalProvider (Stripe integration audit, 2026-07-12, Task
+// #318) is an OPTIONAL capability a PSP adapter may implement, checked
+// via a type assertion at the one call site that needs it
+// (internal/api/billing_portal.go) — deliberately NOT added to
+// PspAdapter itself. A hosted "manage my billing" self-service portal
+// (Stripe Billing Portal) has no equivalent primitive in this
+// codebase's Solidgate/PayPal integrations; forcing every adapter to
+// implement a permanent no-op method for a capability only one PSP
+// actually has would violate Non-negotiable #7's own spirit (canonical,
+// PSP-agnostic interface) more than a narrow optional interface does.
+// Only *stripe.Adapter implements this today.
+type BillingPortalProvider interface {
+	// CreateBillingPortalSession returns a one-time hosted portal URL
+	// for pspCustomerRef (the PSP-side customer id — see
+	// customer_psp_refs.psp_customer_ref) to redirect the end customer
+	// to, landing back on returnURL once they're done. The URL itself is
+	// short-lived and single-use by design (mirrors Stripe's own
+	// documented behavior for a Billing Portal session) — callers must
+	// create a fresh session per redirect, never cache/reuse one.
+	CreateBillingPortalSession(ctx context.Context, pspCustomerRef string, returnURL string) (string, error)
 }

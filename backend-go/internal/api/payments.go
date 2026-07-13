@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -284,7 +285,10 @@ type CircuitBreaker interface {
 // per method.
 type PaymentsStore interface {
 	ResolveCustomerID(ctx context.Context, merchantEntityID string, customerID *string, customerEmail *string) (string, error)
-	FindPaymentByIdempotencyKey(ctx context.Context, idempotencyKey string) (PaymentRow, bool, error)
+	// FindPaymentByIdempotencyKey is scoped by productID — see
+	// pgpaymentsstore.go's doc comment on this method for the
+	// cross-tenant IDOR this scoping closes.
+	FindPaymentByIdempotencyKey(ctx context.Context, productID string, idempotencyKey string) (PaymentRow, bool, error)
 	ResolveRouting(ctx context.Context, productID string, currency string, citMit string, paymentMethodType string) (RoutingDecision, error)
 	CreatePayment(ctx context.Context, input CreatePaymentRow) (PaymentRow, error)
 	GetPspAccount(ctx context.Context, id string) (PspAccountRow, error)
@@ -383,6 +387,15 @@ func SerializePaymentMethod(pm PaymentMethodRow) PaymentMethodDTO {
 func handleCreatePayment(deps PaymentsRouteDeps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		auth, _ := authFromContext(r.Context())
+		// Fixed 2026-07-10: this was the one mutating route in the
+		// package that never called RequireWriteScope, so a
+		// read_only-scoped MCP agent token — meant to be able to browse
+		// data only — could still initiate a real charge. Every other
+		// mutating handler here (capture/void/refund) already enforces
+		// this; creating a payment must too.
+		if !RequireWriteScope(w, auth) {
+			return
+		}
 
 		idemKey, err := RequireIdempotencyKey(r.Header)
 		if err != nil {
@@ -417,6 +430,7 @@ func handleCreatePayment(deps PaymentsRouteDeps) http.HandlerFunc {
 		outcome, err := WithIdempotencyKey(
 			r.Context(),
 			IdempotencyDeps{Store: deps.Idempotency, Cache: deps.Cache},
+			auth.ProductID,
 			idemKey,
 			IdempotentRequestDescriptor{Method: r.Method, Path: r.URL.Path, Body: body},
 			func(ctx context.Context) (IdempotentResult, error) {
@@ -448,8 +462,11 @@ func createPaymentHandler(
 	// Second idempotency layer — see
 	// db/migrations/..._payments-idempotency-key-unique.up.sql's
 	// docblock for why this lookup exists on top of this file's own
-	// Idempotency-Key caching.
-	payment, found, err := deps.Store.FindPaymentByIdempotencyKey(ctx, idempotencyKey)
+	// Idempotency-Key caching. Scoped by auth.ProductID (see
+	// pgpaymentsstore.go's doc comment) so a colliding idempotency key
+	// submitted by a different tenant can never be mistaken for this
+	// caller's own payment.
+	payment, found, err := deps.Store.FindPaymentByIdempotencyKey(ctx, auth.ProductID, idempotencyKey)
 	if err != nil {
 		return IdempotentResult{}, err
 	}
@@ -581,7 +598,15 @@ func createPaymentHandler(
 		return IdempotentResult{}, err
 	}
 	if !found {
-		finalPayment = payment
+		// GetPayment is scoped by auth.ProductID; a miss here means this
+		// payment id genuinely does not belong to the caller's product —
+		// including the now-impossible-in-practice-but-still-worth-
+		// guarding-against case of `payment` above having come from a
+		// different tenant's row. Never fall back to the earlier,
+		// less-strictly-scoped `payment` value: doing so was the exact
+		// cross-tenant IDOR this handler used to have (see
+		// FindPaymentByIdempotencyKey's doc comment).
+		return IdempotentResult{}, fmt.Errorf("api: payment %s not visible under product %s after create", payment.ID, auth.ProductID)
 	}
 
 	dto := serializePayment(finalPayment)
@@ -858,6 +883,7 @@ func handleRefundPayment(deps PaymentsRouteDeps) http.HandlerFunc {
 		outcome, err := WithIdempotencyKey(
 			r.Context(),
 			IdempotencyDeps{Store: deps.Idempotency, Cache: deps.Cache},
+			auth.ProductID,
 			idemKey,
 			IdempotentRequestDescriptor{Method: r.Method, Path: r.URL.Path, Body: body},
 			func(ctx context.Context) (IdempotentResult, error) {
@@ -967,6 +993,7 @@ func handleAttemptAction(
 	outcome, err := WithIdempotencyKey(
 		r.Context(),
 		IdempotencyDeps{Store: deps.Idempotency, Cache: deps.Cache},
+		auth.ProductID,
 		idemKey,
 		IdempotentRequestDescriptor{Method: r.Method, Path: r.URL.Path, Body: requestBody},
 		func(ctx context.Context) (IdempotentResult, error) {

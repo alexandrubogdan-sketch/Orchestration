@@ -126,11 +126,23 @@ type storedRoutingDecision struct {
 }
 
 // FindPaymentByIdempotencyKey mirrors the TS route's
-// `selectFrom('payments').selectAll().where('idempotency_key','=',idempotencyKey).executeTakeFirst()`.
-func (s PgxPaymentsStore) FindPaymentByIdempotencyKey(ctx context.Context, idempotencyKey string) (PaymentRow, bool, error) {
+// `selectFrom('payments').selectAll().where('idempotency_key','=',idempotencyKey).executeTakeFirst()`,
+// but ADDITIONALLY scopes by product_id.
+//
+// Fixed 2026-07-10 (confirmed cross-tenant IDOR): the original query
+// matched on idempotency_key alone. If two different products/tenants
+// ever submitted the same Idempotency-Key value — plausible with
+// sequential order ids or shared test scripts — tenant B's request
+// would find tenant A's payment row here, and createPaymentHandler's
+// "not found under my own scope -> fall back to this row" logic would
+// serialize tenant A's payment id/customer id/amount/state back to
+// tenant B. Scoping this lookup by productID closes that: a foreign
+// idempotency key now behaves as a genuine cache miss, matching what
+// GetPayment already enforces on the read-back path.
+func (s PgxPaymentsStore) FindPaymentByIdempotencyKey(ctx context.Context, productID string, idempotencyKey string) (PaymentRow, bool, error) {
 	row := s.Pool.QueryRow(ctx,
-		`SELECT `+paymentColumns+` FROM payments WHERE idempotency_key = $1`,
-		idempotencyKey,
+		`SELECT `+paymentColumns+` FROM payments WHERE idempotency_key = $1 AND product_id = $2`,
+		idempotencyKey, productID,
 	)
 	p, err := scanPaymentRow(row)
 	if err != nil {
@@ -188,6 +200,14 @@ func (s PgxPaymentsStore) CreatePayment(ctx context.Context, input CreatePayment
 	return p, nil
 }
 
+// ErrPspAccountNotFound is returned by GetPspAccount when id doesn't
+// match any row — distinguished from a real query failure so callers
+// can tell "a routing decision pointed at a psp_account that no longer
+// exists" (a diagnosable, expected-to-be-rare data issue) apart from an
+// actual database error, instead of both collapsing into the same
+// generic 500.
+var ErrPspAccountNotFound = errors.New("psp_account not found")
+
 // GetPspAccount mirrors the TS route's repeated
 // `selectFrom('psp_accounts').selectAll().where('id','=',id).executeTakeFirstOrThrow()`.
 func (s PgxPaymentsStore) GetPspAccount(ctx context.Context, id string) (PspAccountRow, error) {
@@ -197,6 +217,9 @@ func (s PgxPaymentsStore) GetPspAccount(ctx context.Context, id string) (PspAcco
 		id,
 	).Scan(&row.ID, &row.PSP, &row.Mode, &row.SecretRef, &row.StatementDescriptorSuffix)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return PspAccountRow{}, fmt.Errorf("api: psp_account %s: %w", id, ErrPspAccountNotFound)
+		}
 		return PspAccountRow{}, fmt.Errorf("api: query psp_accounts %s: %w", id, err)
 	}
 	return row, nil
@@ -561,8 +584,13 @@ func (s PgxPaymentsStore) GetCheckoutSession(ctx context.Context, id string) (Ch
 // columns) without re-deriving invariants its one caller already
 // enforces upstream.
 func (s PgxPaymentsStore) MarkCheckoutSessionConsumed(ctx context.Context, id string, paymentID string) error {
+	// updated_at = now() added alongside the Stripe integration audit's
+	// checkout_sessions.updated_at migration (2026-07-12, Task #321) —
+	// the one place this row is ever mutated in place now keeps that
+	// column meaningful instead of leaving it permanently equal to
+	// created_at.
 	_, err := s.Pool.Exec(ctx,
-		`UPDATE checkout_sessions SET status = 'consumed', payment_id = $1 WHERE id = $2`,
+		`UPDATE checkout_sessions SET status = 'consumed', payment_id = $1, updated_at = now() WHERE id = $2`,
 		paymentID, id,
 	)
 	if err != nil {

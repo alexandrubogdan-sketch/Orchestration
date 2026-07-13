@@ -22,6 +22,15 @@ import (
 // for dunning) and scans every row into a subscriptions.Subscription,
 // shared by both task handlers to avoid duplicating this scan logic
 // twice for what is otherwise an identical column list.
+//
+// COLLECT_TAX (Stripe integration audit, 2026-07-12, Task #317): query
+// is now expected to end with one extra computed boolean column —
+// `CASE WHEN p.tax_collection = 'disabled' THEN false WHEN
+// p.tax_collection IN ('enabled','global') THEN true ELSE false END AS
+// collect_tax` — via a `LEFT JOIN plans p ON p.id = s.plan_id`, so a
+// subscription's originating plan's tax_collection setting is resolved
+// in the same query that loads it, rather than a second round-trip per
+// subscription. See tasks.go's two call sites for the exact SQL.
 func loadDueSubscriptions(ctx context.Context, pool *pgxpool.Pool, query string, batchSize int) ([]subscriptions.Subscription, error) {
 	rows, err := pool.Query(ctx, query, batchSize)
 	if err != nil {
@@ -37,6 +46,7 @@ func loadDueSubscriptions(ctx context.Context, pool *pgxpool.Pool, query string,
 			&s.ID, &s.MerchantEntityID, &s.ProductID, &s.CustomerID, &s.PaymentMethodID, &s.PspAccountID,
 			&s.AmountMinorUnits, &s.Currency, &intervalUnit, &s.IntervalCount, &s.Status,
 			&s.CurrentPeriodStart, &s.CurrentPeriodEnd, &s.NextBillingAt, &s.DunningStage, &s.DunningNextRetryAt,
+			&s.CollectTax,
 		); err != nil {
 			return nil, fmt.Errorf("worker: scan due subscription row: %w", err)
 		}
@@ -145,12 +155,23 @@ func advanceDunningStage(ctx context.Context, pool *pgxpool.Pool, subscriptionID
 // keeping that layering boundary clean; see MIGRATION_NOTES.md's
 // Configurable Retry/Dunning Policy section for this exact tradeoff
 // named explicitly in its least-confident list.
+//
+// BUG FIX (backend review, 2026-07-10): this query used to select only
+// dunning_ladder_hours, so a merchant's configured min_spacing_seconds
+// was never loaded here at all — it was a completely dead
+// configuration value throughout the system, not merely unenforced at
+// its default of 0. Now also selects min_spacing_seconds and populates
+// subscriptions.DunningConfig's new MinSpacingSeconds field; see that
+// field's own doc comment in internal/subscriptions/dunning.go for the
+// full history and how EvaluateDunningStep now actually enforces it as
+// a floor under the ladder-hour delay.
 func loadDunningConfigForMerchant(ctx context.Context, pool *pgxpool.Pool, merchantEntityID string) (subscriptions.DunningConfig, error) {
 	var hours []int32
+	var minSpacingSeconds int32
 	err := pool.QueryRow(ctx,
-		`SELECT dunning_ladder_hours FROM retry_settings WHERE merchant_entity_id = $1`,
+		`SELECT dunning_ladder_hours, min_spacing_seconds FROM retry_settings WHERE merchant_entity_id = $1`,
 		merchantEntityID,
-	).Scan(&hours)
+	).Scan(&hours, &minSpacingSeconds)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return subscriptions.DefaultDunningConfig(), nil
@@ -161,7 +182,7 @@ func loadDunningConfigForMerchant(ctx context.Context, pool *pgxpool.Pool, merch
 	for i, h := range hours {
 		ladder[i] = int(h)
 	}
-	return subscriptions.DunningConfig{LadderHours: ladder}, nil
+	return subscriptions.DunningConfig{LadderHours: ladder, MinSpacingSeconds: int(minSpacingSeconds)}, nil
 }
 
 // nowMinusHoursISO mirrors

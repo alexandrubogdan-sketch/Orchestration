@@ -249,6 +249,24 @@ func RegisterAll(client *hatchet.Client, deps Deps) Tasks {
 
 func outboxRelayHandler(deps Deps) func(hatchet.Context, OutboxRelayInput) (OutboxRelayResult, error) {
 	return func(ctx hatchet.Context, input OutboxRelayInput) (OutboxRelayResult, error) {
+		// Fixed 2026-07-10 (backend review): run BEFORE DrainBatch, every
+		// tick — reverts any row a previous, now-dead relay run claimed
+		// (outbox.DrainBatch's own transaction) but never actually
+		// dispatched, back to 'pending' so this tick's DrainBatch can pick
+		// it back up. See outbox.DrainBatch's and
+		// outbox.ReconcileStuckClaims's doc comments for the full
+		// dispatched-before-attempted bug this closes. A reconciliation
+		// failure here is logged, not fatal — this tick still attempts its
+		// own normal drain/dispatch pass on whatever is genuinely 'pending'
+		// rather than skipping a whole cycle over a transient reconcile
+		// error.
+		if reconciled, err := outbox.ReconcileStuckClaims(ctx, deps.Pool, outbox.StuckClaimStaleness); err != nil {
+			deps.Logger.Error("outbox.relay: failed to reconcile stuck claims", "error", err)
+		} else if reconciled > 0 {
+			deps.Logger.Warn("outbox.relay: reconciled stuck claims back to pending",
+				"count", reconciled, "staleness", outbox.StuckClaimStaleness.String())
+		}
+
 		batchSize := input.BatchSize
 		if batchSize <= 0 {
 			batchSize = outbox.DefaultRelayBatchSize
@@ -483,7 +501,7 @@ func newSettlementIngestionTask(client *hatchet.Client, deps Deps) *hatchet.Stan
 
 func nightlyInvariantsHandler(deps Deps) func(hatchet.Context, NightlyInvariantsInput) (NightlyInvariantsResult, error) {
 	return func(ctx hatchet.Context, input NightlyInvariantsInput) (NightlyInvariantsResult, error) {
-		_, err := ledger.RunNightlyInvariants(ctx, deps.Pool, ledger.PrometheusMetrics{}, ledger.NightlyInvariantsInput{
+		_, err := ledger.RunNightlyInvariants(ctx, deps.Pool, ledger.PrometheusMetrics{}, deps.Logger, ledger.NightlyInvariantsInput{
 			StaleHours: input.StaleHours,
 		})
 		if err != nil {
@@ -508,10 +526,15 @@ func renewalDispatcherHandler(deps Deps) func(hatchet.Context, RenewalDispatcher
 			batchSize = 200
 		}
 		due, err := loadDueSubscriptions(ctx, deps.Pool,
-			`SELECT id, merchant_entity_id, product_id, customer_id, payment_method_id, psp_account_id,
-			        amount_minor_units, currency, interval_unit, interval_count, status,
-			        current_period_start, current_period_end, next_billing_at, dunning_stage, dunning_next_retry_at
-			 FROM subscriptions WHERE status = 'active' AND next_billing_at <= now() LIMIT $1`,
+			`SELECT s.id, s.merchant_entity_id, s.product_id, s.customer_id, s.payment_method_id, s.psp_account_id,
+			        s.amount_minor_units, s.currency, s.interval_unit, s.interval_count, s.status,
+			        s.current_period_start, s.current_period_end, s.next_billing_at, s.dunning_stage, s.dunning_next_retry_at,
+			        CASE WHEN p.tax_collection = 'disabled' THEN false
+			             WHEN p.tax_collection IN ('enabled', 'global') THEN true
+			             ELSE false END AS collect_tax
+			 FROM subscriptions s
+			 LEFT JOIN plans p ON p.id = s.plan_id
+			 WHERE s.status = 'active' AND s.next_billing_at <= now() LIMIT $1`,
 			batchSize,
 		)
 		if err != nil {
@@ -571,10 +594,15 @@ func dunningProcessorHandler(deps Deps) func(hatchet.Context, DunningProcessorIn
 			batchSize = 200
 		}
 		due, err := loadDueSubscriptions(ctx, deps.Pool,
-			`SELECT id, merchant_entity_id, product_id, customer_id, payment_method_id, psp_account_id,
-			        amount_minor_units, currency, interval_unit, interval_count, status,
-			        current_period_start, current_period_end, next_billing_at, dunning_stage, dunning_next_retry_at
-			 FROM subscriptions WHERE status = 'past_due' AND dunning_next_retry_at <= now() LIMIT $1`,
+			`SELECT s.id, s.merchant_entity_id, s.product_id, s.customer_id, s.payment_method_id, s.psp_account_id,
+			        s.amount_minor_units, s.currency, s.interval_unit, s.interval_count, s.status,
+			        s.current_period_start, s.current_period_end, s.next_billing_at, s.dunning_stage, s.dunning_next_retry_at,
+			        CASE WHEN p.tax_collection = 'disabled' THEN false
+			             WHEN p.tax_collection IN ('enabled', 'global') THEN true
+			             ELSE false END AS collect_tax
+			 FROM subscriptions s
+			 LEFT JOIN plans p ON p.id = s.plan_id
+			 WHERE s.status = 'past_due' AND s.dunning_next_retry_at <= now() LIMIT $1`,
 			batchSize,
 		)
 		if err != nil {

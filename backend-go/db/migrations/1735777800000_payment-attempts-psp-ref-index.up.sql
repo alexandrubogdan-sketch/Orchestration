@@ -1,0 +1,31 @@
+-- Stripe integration audit (2026-07-12), Task #313: payment_attempts.
+-- psp_attempt_ref had no index at all, so
+-- internal/webhooks/normalize.go's fallback lookup
+-- ("SELECT payment_id FROM payment_attempts WHERE psp_attempt_ref = $1",
+-- used when an adapter's ExtractPaymentID can't find the id directly
+-- and falls back to the psp-side attempt reference instead) was a full
+-- table scan on every webhook that took this path — a real cost once
+-- payment_attempts has any meaningful row count.
+--
+-- Worse than the missing index: there was no uniqueness constraint
+-- either. Two attempts sharing the same psp_attempt_ref (e.g. a bug in
+-- an adapter's ref-generation, or two different psp_accounts that
+-- happen to reuse the same PSP-side identifier scheme) would make this
+-- query's .Scan() into a single string non-deterministic about which
+-- matching row it returns — silently misattributing a webhook to the
+-- wrong payment. That's a correctness bug a busy production system
+-- would eventually hit, not a hypothetical.
+--
+-- A PARTIAL unique index (WHERE psp_attempt_ref IS NOT NULL) rather
+-- than a plain UNIQUE column constraint: psp_attempt_ref is nullable
+-- (not every attempt has a psp-side ref yet at insert time — see this
+-- table's own column comment in the core-schema migration), and
+-- Postgres's own UNIQUE semantics already treat multiple NULLs as
+-- non-conflicting, so a plain UNIQUE constraint would have worked
+-- identically here too; the partial form is used anyway to make the
+-- "NULLs are exempt, everything else must be distinct" intent explicit
+-- in the schema itself rather than relying on the reader already
+-- knowing Postgres's NULL-uniqueness behavior.
+CREATE UNIQUE INDEX payment_attempts_psp_attempt_ref_uidx
+  ON payment_attempts(psp_attempt_ref)
+  WHERE psp_attempt_ref IS NOT NULL;

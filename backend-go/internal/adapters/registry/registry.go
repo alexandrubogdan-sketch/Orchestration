@@ -23,6 +23,7 @@ package registry
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/alphapayments/payment-orchestrator/internal/adapters"
 	"github.com/alphapayments/payment-orchestrator/internal/adapters/mock"
@@ -113,11 +114,21 @@ func (e *UnknownPspError) Error() string {
 // instances, caching one adapter instance per account id (a Stripe/
 // Solidgate client is reasonably expensive to construct and safe to
 // reuse across requests).
+//
+// Resolve is called concurrently from multiple goroutines in production
+// (the payments HTTP handler, the webhook normalizer, and the
+// gap-detection cron can all race to resolve the same or different
+// psp_account ids at the same instant), so cache must never be read or
+// written without cacheMu held — a bare map under concurrent read+write
+// is not just "unsafe," it is a guaranteed `fatal error: concurrent map
+// writes` that crashes the whole process, not a recoverable panic.
 type Registry struct {
 	config      Config
 	declineMaps map[string]map[string]domain.NormalizedDecline
 	mockAdapter *mock.Adapter
-	cache       map[string]adapters.PspAdapter
+
+	cacheMu sync.RWMutex
+	cache   map[string]adapters.PspAdapter
 }
 
 // New constructs a Registry. declineMaps is typically the result of
@@ -148,72 +159,113 @@ func (r *Registry) Resolve(pspAccount PspAccount) (adapters.PspAdapter, error) {
 		return r.mockAdapter, nil
 	}
 
-	if cached, ok := r.cache[pspAccount.ID]; ok {
+	if cached, ok := r.getCached(pspAccount.ID); ok {
 		return cached, nil
 	}
 
+	// Double-checked locking: construct the adapter without holding the
+	// lock (credential resolution can do I/O in future phases and must
+	// never block every other in-flight Resolve call), then take the
+	// write lock only to re-check-and-store. Two goroutines racing to
+	// resolve the same brand-new account id will each construct an
+	// adapter, but only the first to acquire the write lock wins the
+	// cache slot — the loser's freshly-built adapter is simply
+	// discarded, which is safe and cheap (adapters hold no unique
+	// resources that need closing).
+	var adapter adapters.PspAdapter
+	var err error
 	switch pspAccount.PSP {
 	case "stripe":
-		credentials, err := stripe.ResolveCredentials(r.config.Stripe, stripe.PspAccount{
-			Mode:      pspAccount.Mode,
-			SecretRef: pspAccount.SecretRef,
-		})
-		if err != nil {
-			return nil, err
-		}
-		adapter := stripe.New(stripe.Options{
-			Credentials: credentials,
-			APIVersion:  r.config.Stripe.APIVersion,
-			DeclineMap:  r.declineMaps["stripe"],
-		})
-		r.cache[pspAccount.ID] = adapter
-		return adapter, nil
-
+		adapter, err = r.buildStripeAdapter(pspAccount)
 	case "solidgate":
-		credentials, err := solidgate.ResolveCredentials(r.config.Solidgate, solidgate.PspAccount{
-			Mode:      pspAccount.Mode,
-			SecretRef: pspAccount.SecretRef,
-		})
-		if err != nil {
-			return nil, err
-		}
-		// Webhook verification credentials are resolved lazily (only
-		// needed if VerifyWebhook is actually called) rather than at
-		// construction time — a process with SOLIDGATE_PUBLIC_KEY/
-		// SOLIDGATE_SECRET_KEY set but no webhook keys configured can
-		// still make outbound Solidgate calls; it just can't verify
-		// inbound Solidgate webhooks yet.
-		var webhookCredentials *solidgate.WebhookCredentials
-		if r.config.Solidgate.WebhookPublicKey != "" && r.config.Solidgate.WebhookSecretKey != "" {
-			resolved, err := solidgate.ResolveWebhookCredentials(r.config.Solidgate)
-			if err == nil {
-				webhookCredentials = &resolved
-			}
-		}
-		adapter := solidgate.New(solidgate.Options{
-			Credentials:        credentials,
-			WebhookCredentials: webhookCredentials,
-			DeclineMap:         r.declineMaps["solidgate"],
-		})
-		r.cache[pspAccount.ID] = adapter
-		return adapter, nil
-
+		adapter, err = r.buildSolidgateAdapter(pspAccount)
 	case "paypal":
-		credentials, err := paypal.ResolveCredentials(r.config.PayPal, paypal.PspAccount{
-			Mode:      pspAccount.Mode,
-			SecretRef: pspAccount.SecretRef,
-		})
-		if err != nil {
-			return nil, err
-		}
-		adapter := paypal.New(paypal.Options{
-			Credentials: credentials,
-			DeclineMap:  r.declineMaps["paypal"],
-		})
-		r.cache[pspAccount.ID] = adapter
-		return adapter, nil
-
+		adapter, err = r.buildPaypalAdapter(pspAccount)
 	default:
 		return nil, &UnknownPspError{PSP: pspAccount.PSP}
 	}
+	if err != nil {
+		return nil, err
+	}
+
+	return r.storeCached(pspAccount.ID, adapter), nil
+}
+
+// getCached is the read path of Resolve's double-checked locking.
+func (r *Registry) getCached(pspAccountID string) (adapters.PspAdapter, bool) {
+	r.cacheMu.RLock()
+	defer r.cacheMu.RUnlock()
+	cached, ok := r.cache[pspAccountID]
+	return cached, ok
+}
+
+// storeCached is the write path of Resolve's double-checked locking —
+// it re-checks under the write lock so a concurrent winner's adapter is
+// always the one returned to every caller, keeping "one adapter
+// instance per account id" true even under a resolve race.
+func (r *Registry) storeCached(pspAccountID string, adapter adapters.PspAdapter) adapters.PspAdapter {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	if existing, ok := r.cache[pspAccountID]; ok {
+		return existing
+	}
+	r.cache[pspAccountID] = adapter
+	return adapter
+}
+
+func (r *Registry) buildStripeAdapter(pspAccount PspAccount) (adapters.PspAdapter, error) {
+	credentials, err := stripe.ResolveCredentials(r.config.Stripe, stripe.PspAccount{
+		Mode:      pspAccount.Mode,
+		SecretRef: pspAccount.SecretRef,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return stripe.New(stripe.Options{
+		Credentials: credentials,
+		APIVersion:  r.config.Stripe.APIVersion,
+		DeclineMap:  r.declineMaps["stripe"],
+	}), nil
+}
+
+func (r *Registry) buildSolidgateAdapter(pspAccount PspAccount) (adapters.PspAdapter, error) {
+	credentials, err := solidgate.ResolveCredentials(r.config.Solidgate, solidgate.PspAccount{
+		Mode:      pspAccount.Mode,
+		SecretRef: pspAccount.SecretRef,
+	})
+	if err != nil {
+		return nil, err
+	}
+	// Webhook verification credentials are resolved lazily (only
+	// needed if VerifyWebhook is actually called) rather than at
+	// construction time — a process with SOLIDGATE_PUBLIC_KEY/
+	// SOLIDGATE_SECRET_KEY set but no webhook keys configured can
+	// still make outbound Solidgate calls; it just can't verify
+	// inbound Solidgate webhooks yet.
+	var webhookCredentials *solidgate.WebhookCredentials
+	if r.config.Solidgate.WebhookPublicKey != "" && r.config.Solidgate.WebhookSecretKey != "" {
+		resolved, err := solidgate.ResolveWebhookCredentials(r.config.Solidgate)
+		if err == nil {
+			webhookCredentials = &resolved
+		}
+	}
+	return solidgate.New(solidgate.Options{
+		Credentials:        credentials,
+		WebhookCredentials: webhookCredentials,
+		DeclineMap:         r.declineMaps["solidgate"],
+	}), nil
+}
+
+func (r *Registry) buildPaypalAdapter(pspAccount PspAccount) (adapters.PspAdapter, error) {
+	credentials, err := paypal.ResolveCredentials(r.config.PayPal, paypal.PspAccount{
+		Mode:      pspAccount.Mode,
+		SecretRef: pspAccount.SecretRef,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return paypal.New(paypal.Options{
+		Credentials: credentials,
+		DeclineMap:  r.declineMaps["paypal"],
+	}), nil
 }

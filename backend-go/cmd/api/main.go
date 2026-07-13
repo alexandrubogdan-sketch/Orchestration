@@ -53,6 +53,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -140,7 +141,11 @@ func main() {
 	// Phase 4's routing engine, constructed here for real (this Go port
 	// previously only wired the circuit breaker on its own in Phase 4;
 	// Phase 5 now needs the full Evaluator for PaymentsStore.ResolveRouting).
-	breaker := routing.NewCircuitBreaker(redisClient, routing.DefaultBreakerConfig)
+	// logger is passed through so a Redis blip during a breaker state
+	// read is visible (see circuitbreaker.go's IsAvailable bug-fix doc
+	// comment, 2026-07-10) instead of silently failing open with no
+	// trace of why.
+	breaker := routing.NewCircuitBreaker(redisClient, routing.DefaultBreakerConfig, logger)
 	routingCache := routing.NewCache(redisClient)
 	rulesRepo := routing.NewRulesRepo(pgPool, routingCache)
 	evaluator := routing.NewEvaluator(pgPool, rulesRepo, breaker)
@@ -182,6 +187,13 @@ func main() {
 	// no dependency on anything PaymentsStore doesn't already depend on
 	// (the same *pgxpool.Pool, nothing routing/webhooks-specific).
 	checkoutSessionsStore := paymentsStore
+
+	// Tracks every in-flight background webhook.Normalize goroutine
+	// api.WebhookDeps.InFlight (below) hands out Add/Done calls for — see
+	// this file's shutdown sequence, further down, for how it's used to
+	// bound graceful shutdown on these goroutines too, not just in-flight
+	// HTTP requests (which server.Shutdown already handles on its own).
+	var webhookInFlight sync.WaitGroup
 
 	router := api.BuildRouter(api.Deps{
 		Logger: logger,
@@ -240,6 +252,9 @@ func main() {
 		// see subscriptions.go's top doc comment for why this route
 		// takes the raw pool rather than a store interface.
 		SubscriptionsPool: pgPool,
+		// BillingPortalPool backs POST /v1/customers/{id}/billing-portal-
+		// session — see billing_portal.go's top doc comment.
+		BillingPortalPool: pgPool,
 
 		Registry: pspRegistry,
 		// Breaker: real, working circuit-breaker state against the live
@@ -249,12 +264,27 @@ func main() {
 		// Evaluator constructed above).
 		Breaker: breaker,
 
+		// CheckoutRateLimiter: backend review fix (2026-07-10) — the two
+		// unauthenticated public checkout routes had no rate limiting at
+		// all (see ratelimit.go's top doc comment for the card-testing
+		// attack this closes). Reuses the same live redisClient
+		// constructed above, exactly like Cache/Breaker/routingCache do,
+		// rather than opening a second connection pool.
+		// CheckoutRateLimitConfig is left zero-valued, so
+		// rateLimitPublicCheckoutRoute falls back to
+		// api.DefaultPublicCheckoutRateLimitConfig (20 req/min per IP
+		// per route).
+		CheckoutRateLimiter: api.RedisPublicRateLimiterStore{Client: redisClient},
+
 		// Phase 5: webhook ingress route — mounted OUTSIDE the /v1 auth
 		// group by BuildRouter (see router.go's own doc comment on
 		// exactly where and why).
 		Webhook: api.WebhookDeps{
 			Webhooks: webhookDeps,
 			Logger:   logger,
+			// See webhookInFlight's own doc comment below, near the
+			// graceful-shutdown sequence, for why this exists.
+			InFlight: &webhookInFlight,
 		},
 
 		Env: cfg.Env,
@@ -289,5 +319,31 @@ func main() {
 	defer cancel()
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Error("error during graceful shutdown", "error", err)
+	}
+
+	// BUG FIX (backend review, 2026-07-10): server.Shutdown only waits for
+	// in-flight HTTP handlers to return — it has no visibility into the
+	// detached webhook.Normalize goroutines internal/api/webhooks.go's
+	// handleWebhook starts with context.Background() specifically so they
+	// outlive the request that triggered them (see that file's own doc
+	// comment on why). Without this wait, a SIGTERM here could kill the
+	// process mid-Normalize on every deploy, not just an actual crash —
+	// each dropped one would still self-heal via gap-detection's cron, but
+	// needlessly, on a perfectly normal restart. Bounded to 5s (well under
+	// this file's own signal-handling expectations and comfortably shorter
+	// than the 10s already budgeted for server.Shutdown above) so one
+	// genuinely stuck Normalize call can't hang the whole shutdown — if
+	// the wait times out, this process exits anyway, exactly as it did
+	// before this fix, just now with the common case (a handful of
+	// in-flight normalizes finishing in milliseconds) handled cleanly.
+	inFlightDone := make(chan struct{})
+	go func() {
+		webhookInFlight.Wait()
+		close(inFlightDone)
+	}()
+	select {
+	case <-inFlightDone:
+	case <-time.After(5 * time.Second):
+		logger.Warn("timed out waiting for in-flight webhook normalize goroutines to drain during shutdown")
 	}
 }

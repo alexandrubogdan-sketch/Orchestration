@@ -24,12 +24,16 @@ package api
 // scope ("read_only" | "read_write") is the one new safety primitive
 // this resource introduces: a read_only agent token can call every GET
 // /v1/* route but is rejected 403 by RequireWriteScope (auth.go), which
-// every mutating handler in this package now calls — refund/void/
-// capture payments and cancel-subscription (subscriptions.go). This is
-// enforced at the same layer every other authorization decision in
-// this package already lives (the handler, via AuthContext), not
-// duplicated inside the MCP server, so it holds regardless of how a
-// caller reaches these routes.
+// every mutating handler in this package calls — refund/void/capture
+// payments, cancel-subscription (subscriptions.go), and, since
+// 2026-07-10, handleCreateAgentToken/handleRevokeAgentToken themselves
+// (a read_only token minting or revoking a token — including a more-
+// privileged sibling token — would otherwise be a privilege-escalation
+// path this same scope check exists to prevent). This is enforced at
+// the same layer every other authorization decision in this package
+// already lives (the handler, via AuthContext), not duplicated inside
+// the MCP server, so it holds regardless of how a caller reaches these
+// routes.
 
 import (
 	"context"
@@ -144,6 +148,14 @@ func handleCreateAgentToken(deps AgentTokensRouteDeps) http.HandlerFunc {
 			WriteProblem(w, http.StatusUnauthorized, "Missing or invalid API token", "")
 			return
 		}
+		// Fixed 2026-07-10: minting a new agent token is itself a
+		// mutating, privilege-bearing action — a read_only-scoped token
+		// (e.g. one already handed to a read-only MCP agent) must not be
+		// able to mint itself a fresh read_write token and escalate.
+		// Matches every other mutating handler in this package/payments.go.
+		if !RequireWriteScope(w, auth) {
+			return
+		}
 
 		var body createAgentTokenRequest
 		if r.ContentLength != 0 {
@@ -229,6 +241,14 @@ func handleRevokeAgentToken(deps AgentTokensRouteDeps) http.HandlerFunc {
 		auth, ok := authFromContext(r.Context())
 		if !ok {
 			WriteProblem(w, http.StatusUnauthorized, "Missing or invalid API token", "")
+			return
+		}
+		// Fixed 2026-07-10: revocation is mutating too — see
+		// handleCreateAgentToken's identical fix above for the full
+		// rationale (a read_only agent token must not be able to revoke
+		// any token, including escalating by revoking a more-restricted
+		// sibling token or another agent's token).
+		if !RequireWriteScope(w, auth) {
 			return
 		}
 		id := chi.URLParam(r, "id")

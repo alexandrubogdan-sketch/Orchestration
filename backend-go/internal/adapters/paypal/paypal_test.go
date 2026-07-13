@@ -289,26 +289,75 @@ func TestAmountToPayPalValue(t *testing.T) {
 	}
 }
 
+// Regression test for the backend review's confirmed zero-decimal
+// currency gap (2026-07-10): amountToPayPalValue used to unconditionally
+// divide by 100, which would have produced "1.00" for ¥100 (JPY) instead
+// of the correct "100" — domain.MakeMoney already accepts JPY (it's in
+// domain.KnownCurrencies) even though PayPal's own Capabilities() below
+// doesn't advertise it yet, so this was a live landmine, not a
+// theoretical one.
+func TestAmountToPayPalValue_ZeroDecimalCurrency(t *testing.T) {
+	yen, err := domain.MakeMoney(10000, "JPY")
+	if err != nil {
+		t.Fatalf("MakeMoney failed: %v", err)
+	}
+	if got := amountToPayPalValue(yen); got != "10000" {
+		t.Errorf("amountToPayPalValue(10000 minor units, JPY) = %s, want 10000 (bare integer, no decimal point)", got)
+	}
+}
+
 func TestPayPalValueToMinorUnits(t *testing.T) {
 	tests := []struct {
-		value string
-		want  int64
+		value    string
+		currency string
+		want     int64
 	}{
-		{"100.00", 10000},
-		{"0.05", 5},
-		{"42.5", 4250},
-		{"7", 700},
+		{"100.00", "USD", 10000},
+		{"0.05", "USD", 5},
+		{"42.5", "USD", 4250},
+		{"7", "USD", 700},
 	}
 	for _, tt := range tests {
 		t.Run(tt.value, func(t *testing.T) {
-			got, err := payPalValueToMinorUnits(tt.value)
+			got, err := payPalValueToMinorUnits(tt.value, tt.currency)
 			if err != nil {
-				t.Fatalf("payPalValueToMinorUnits(%q) returned an error: %v", tt.value, err)
+				t.Fatalf("payPalValueToMinorUnits(%q, %q) returned an error: %v", tt.value, tt.currency, err)
 			}
 			if got != tt.want {
-				t.Errorf("payPalValueToMinorUnits(%q) = %d, want %d", tt.value, got, tt.want)
+				t.Errorf("payPalValueToMinorUnits(%q, %q) = %d, want %d", tt.value, tt.currency, got, tt.want)
 			}
 		})
+	}
+}
+
+// Regression test for the same zero-decimal fix, on the decode side:
+// a PayPal JPY amount.value of "10000" means ¥10000 (minor units ==
+// whole units), not 10000 cents.
+func TestPayPalValueToMinorUnits_ZeroDecimalCurrency(t *testing.T) {
+	got, err := payPalValueToMinorUnits("10000", "JPY")
+	if err != nil {
+		t.Fatalf("payPalValueToMinorUnits returned an error: %v", err)
+	}
+	if got != 10000 {
+		t.Errorf("payPalValueToMinorUnits(\"10000\", JPY) = %d, want 10000", got)
+	}
+}
+
+// Round-trips a zero-decimal amount through both directions to confirm
+// they're genuine inverses of each other for JPY, exactly like the
+// existing (unwritten but implied) USD round-trip already was.
+func TestAmountToPayPalValue_RoundTripsWithZeroDecimalCurrency(t *testing.T) {
+	original, err := domain.MakeMoney(500, "JPY")
+	if err != nil {
+		t.Fatalf("MakeMoney failed: %v", err)
+	}
+	value := amountToPayPalValue(original)
+	roundTripped, err := payPalValueToMinorUnits(value, "JPY")
+	if err != nil {
+		t.Fatalf("payPalValueToMinorUnits(%q, JPY) returned an error: %v", value, err)
+	}
+	if roundTripped != original.MinorUnits() {
+		t.Errorf("round-trip mismatch: got %d, want %d", roundTripped, original.MinorUnits())
 	}
 }
 

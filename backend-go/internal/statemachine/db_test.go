@@ -3,6 +3,7 @@ package statemachine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -264,7 +265,7 @@ func TestTransitionInTx_Transitioned_WritesEventUpdatesStateAndEnqueuesOutbox(t 
 	}
 	tx := newFakeTx(row)
 
-	result, err := transitionInTx(context.Background(), tx, "payment-1", domain.CanonicalEvent{Type: domain.EventAuthorized}, alwaysStable)
+	result, err := transitionInTx(context.Background(), tx, "payment-1", domain.CanonicalEvent{Type: domain.EventAuthorized}, alwaysStable, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -324,7 +325,7 @@ func TestTransitionInTx_Late_DoesNotTouchStateWritesOnlyLateEvent(t *testing.T) 
 	// authorized has no "authorized" transition defined again — but it
 	// IS a known event type (valid from authorizing), so from
 	// "authorized" it's a recognized-but-not-applicable-here late event.
-	result, err := transitionInTx(context.Background(), tx, "payment-2", domain.CanonicalEvent{Type: domain.EventAuthorized}, alwaysStable)
+	result, err := transitionInTx(context.Background(), tx, "payment-2", domain.CanonicalEvent{Type: domain.EventAuthorized}, alwaysStable, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -362,7 +363,7 @@ func TestTransitionInTx_InvalidTransition_WritesInvariantViolationThenReturnsErr
 	// A terminal state always produces "late", never InvalidTransitionError
 	// per domain.ApplyTransition's own short-circuit — so to exercise the
 	// InvalidTransitionError path we need a genuinely unknown event type.
-	result, err := transitionInTx(context.Background(), tx, "payment-3", domain.CanonicalEvent{Type: domain.CanonicalEventType("not_a_real_event")}, alwaysStable)
+	result, err := transitionInTx(context.Background(), tx, "payment-3", domain.CanonicalEvent{Type: domain.CanonicalEventType("not_a_real_event")}, alwaysStable, nil)
 	if err == nil {
 		t.Fatalf("expected an error, got outcome=%s", result.Outcome)
 	}
@@ -410,7 +411,7 @@ func TestTransitionInTx_TransitionedWithoutStableName_DoesNotEnqueueOutboxRow(t 
 	}
 	tx := newFakeTx(row)
 
-	result, err := transitionInTx(context.Background(), tx, "payment-4", domain.CanonicalEvent{Type: domain.EventAuthorized}, neverStable)
+	result, err := transitionInTx(context.Background(), tx, "payment-4", domain.CanonicalEvent{Type: domain.EventAuthorized}, neverStable, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -435,7 +436,7 @@ func TestTransitionInTx_NilStableNameLookup_NeverEnqueuesOutboxRow(t *testing.T)
 	}
 	tx := newFakeTx(row)
 
-	result, err := transitionInTx(context.Background(), tx, "payment-5", domain.CanonicalEvent{Type: domain.EventAuthorized}, nil)
+	result, err := transitionInTx(context.Background(), tx, "payment-5", domain.CanonicalEvent{Type: domain.EventAuthorized}, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -449,7 +450,7 @@ func TestTransitionInTx_NilStableNameLookup_NeverEnqueuesOutboxRow(t *testing.T)
 
 func TestTransitionInTx_PaymentNotFound(t *testing.T) {
 	tx := newFakeTx(nil)
-	_, err := transitionInTx(context.Background(), tx, "does-not-exist", domain.CanonicalEvent{Type: domain.EventAuthorized}, alwaysStable)
+	_, err := transitionInTx(context.Background(), tx, "does-not-exist", domain.CanonicalEvent{Type: domain.EventAuthorized}, alwaysStable, nil)
 	if err == nil {
 		t.Fatal("expected an error")
 	}
@@ -476,7 +477,7 @@ func TestTransitionInTx_DisputeWon_RequiresResolvedTarget(t *testing.T) {
 	// and an invariant_violation row should still be written (this is
 	// the exact case domain.ApplyTransition's own doc comment calls out
 	// as "the genuine invariant-violation case, not a timing artifact").
-	_, err := transitionInTx(context.Background(), tx, "payment-6", domain.CanonicalEvent{Type: domain.EventDisputeWon}, alwaysStable)
+	_, err := transitionInTx(context.Background(), tx, "payment-6", domain.CanonicalEvent{Type: domain.EventDisputeWon}, alwaysStable, nil)
 	if err == nil {
 		t.Fatal("expected an error for an unresolved ambiguous dispute_won event")
 	}
@@ -487,11 +488,164 @@ func TestTransitionInTx_DisputeWon_RequiresResolvedTarget(t *testing.T) {
 	// Now with a valid ResolvedTarget, it should transition cleanly.
 	tx2 := newFakeTx(&fakeRow{id: "payment-6", productID: "product-1", state: string(domain.StateDisputeOpened), createdAt: time.Now(), updatedAt: time.Now()})
 	resolved := domain.StateCaptured
-	result, err := transitionInTx(context.Background(), tx2, "payment-6", domain.CanonicalEvent{Type: domain.EventDisputeWon, ResolvedTarget: &resolved}, alwaysStable)
+	result, err := transitionInTx(context.Background(), tx2, "payment-6", domain.CanonicalEvent{Type: domain.EventDisputeWon, ResolvedTarget: &resolved}, alwaysStable, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if result.To != domain.StateCaptured {
 		t.Fatalf("expected resolved target captured, got %s", result.To)
+	}
+}
+
+// Regression tests for the backend review's confirmed ledger write /
+// state transition atomicity bug (2026-07-10): recordLedgerEntry
+// (a LedgerEntryWriter) must be invoked, with the POST-transition
+// payment row and toState, on a "transitioned" outcome and on that
+// outcome only — never for "late" or an invalid/rejected transition,
+// both of which return before reaching that point. See
+// LedgerEntryWriter's doc comment in db.go for the full history of the
+// bug this closes.
+
+// recordedLedgerCall captures one recordLedgerEntry invocation for
+// assertion purposes.
+type recordedLedgerCall struct {
+	payment PaymentRow
+	toState domain.PaymentState
+}
+
+// spyLedgerWriter returns a LedgerEntryWriter that appends every call
+// it receives to calls (a pointer so the closure can mutate the
+// caller's slice), optionally returning err on every call — used to
+// simulate a failing ledger write for the propagation test below.
+func spyLedgerWriter(calls *[]recordedLedgerCall, err error) LedgerEntryWriter {
+	return func(_ context.Context, _ Querier, payment PaymentRow, toState domain.PaymentState) error {
+		*calls = append(*calls, recordedLedgerCall{payment: payment, toState: toState})
+		return err
+	}
+}
+
+func TestTransitionInTx_Transitioned_CallsRecordLedgerEntryWithUpdatedRowAndToState(t *testing.T) {
+	row := &fakeRow{
+		id:               "payment-7",
+		merchantEntityID: "entity-1",
+		productID:        "product-1",
+		amountMinorUnits: 2500,
+		currency:         "USD",
+		state:            string(domain.StateAuthorizing),
+		createdAt:        time.Now(),
+		updatedAt:        time.Now(),
+	}
+	tx := newFakeTx(row)
+
+	var calls []recordedLedgerCall
+	result, err := transitionInTx(context.Background(), tx, "payment-7", domain.CanonicalEvent{Type: domain.EventAuthorized}, alwaysStable, spyLedgerWriter(&calls, nil))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected exactly one recordLedgerEntry call, got %d", len(calls))
+	}
+	if calls[0].toState != domain.StateAuthorized {
+		t.Errorf("toState = %s, want %s", calls[0].toState, domain.StateAuthorized)
+	}
+	if calls[0].payment.State != domain.StateAuthorized {
+		t.Errorf("payment.State = %s, want %s (the POST-transition row, not the pre-transition one)", calls[0].payment.State, domain.StateAuthorized)
+	}
+	if calls[0].payment.AmountMinorUnits != 2500 || calls[0].payment.Currency != "USD" {
+		t.Errorf("unexpected payment row passed to recordLedgerEntry: %+v", calls[0].payment)
+	}
+	if result.Outcome != "transitioned" {
+		t.Fatalf("expected outcome=transitioned, got %s", result.Outcome)
+	}
+}
+
+func TestTransitionInTx_Late_DoesNotCallRecordLedgerEntry(t *testing.T) {
+	row := &fakeRow{
+		id:        "payment-8",
+		productID: "product-1",
+		state:     string(domain.StateAuthorized),
+		createdAt: time.Now(),
+		updatedAt: time.Now(),
+	}
+	tx := newFakeTx(row)
+
+	var calls []recordedLedgerCall
+	result, err := transitionInTx(context.Background(), tx, "payment-8", domain.CanonicalEvent{Type: domain.EventAuthorized}, alwaysStable, spyLedgerWriter(&calls, nil))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Outcome != "late" {
+		t.Fatalf("expected outcome=late, got %s", result.Outcome)
+	}
+	if len(calls) != 0 {
+		t.Fatalf("expected recordLedgerEntry NOT to be called for a late event, got %d calls", len(calls))
+	}
+}
+
+func TestTransitionInTx_InvalidTransition_DoesNotCallRecordLedgerEntry(t *testing.T) {
+	row := &fakeRow{
+		id:        "payment-9",
+		productID: "product-1",
+		state:     string(domain.StateDeclined),
+		createdAt: time.Now(),
+		updatedAt: time.Now(),
+	}
+	tx := newFakeTx(row)
+
+	var calls []recordedLedgerCall
+	_, err := transitionInTx(context.Background(), tx, "payment-9", domain.CanonicalEvent{Type: domain.CanonicalEventType("not_a_real_event")}, alwaysStable, spyLedgerWriter(&calls, nil))
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if len(calls) != 0 {
+		t.Fatalf("expected recordLedgerEntry NOT to be called on an invalid transition, got %d calls", len(calls))
+	}
+}
+
+// The actual atomicity guarantee (a failed ledger write rolls back the
+// state update and payment_events insert too) lives in Transition's
+// standard pgx Begin/defer-Rollback/Commit shape, not in
+// transitionInTx itself (which receives an already-open Querier and
+// has no commit/rollback of its own to manage) — this test verifies
+// the piece transitionInTx IS responsible for: a non-nil error from
+// recordLedgerEntry must propagate as transitionInTx's own returned
+// error, so Transition's caller never reaches tx.Commit.
+func TestTransitionInTx_RecordLedgerEntryErrorPropagates(t *testing.T) {
+	row := &fakeRow{
+		id:        "payment-10",
+		productID: "product-1",
+		state:     string(domain.StateAuthorizing),
+		createdAt: time.Now(),
+		updatedAt: time.Now(),
+	}
+	tx := newFakeTx(row)
+
+	ledgerErr := errors.New("webhooks: insert transactions ledger row: connection reset")
+	var calls []recordedLedgerCall
+	_, err := transitionInTx(context.Background(), tx, "payment-10", domain.CanonicalEvent{Type: domain.EventAuthorized}, alwaysStable, spyLedgerWriter(&calls, ledgerErr))
+	if !errors.Is(err, ledgerErr) {
+		t.Fatalf("expected transitionInTx to propagate the ledger writer's error, got: %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("expected recordLedgerEntry to have been called exactly once, got %d", len(calls))
+	}
+}
+
+func TestTransitionInTx_NilRecordLedgerEntry_NeverPanics(t *testing.T) {
+	row := &fakeRow{
+		id:        "payment-11",
+		productID: "product-1",
+		state:     string(domain.StateAuthorizing),
+		createdAt: time.Now(),
+		updatedAt: time.Now(),
+	}
+	tx := newFakeTx(row)
+
+	result, err := transitionInTx(context.Background(), tx, "payment-11", domain.CanonicalEvent{Type: domain.EventAuthorized}, alwaysStable, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Outcome != "transitioned" {
+		t.Fatalf("expected outcome=transitioned, got %s", result.Outcome)
 	}
 }

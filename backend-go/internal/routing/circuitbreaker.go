@@ -3,6 +3,7 @@ package routing
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -95,6 +96,16 @@ type CircuitBreaker struct {
 	// vi.useFakeTimers() gives the TS test suite, without needing a
 	// real sleep or a wall-clock race.
 	now func() time.Time
+
+	// Logger receives a Warn-level line whenever IsAvailable fails open
+	// because the breaker's own state could not be read (see
+	// IsAvailable's doc comment, and this file's BUG FIX doc comment
+	// below, for why this exists and what it's fixing). May be nil, in
+	// which case IsAvailable still fails open, just silently -- matching
+	// this package's existing "logger is optional, correctness never
+	// depends on it" convention (see e.g. observability's own optional
+	// loggers elsewhere in this codebase).
+	Logger *slog.Logger
 }
 
 // ScriptRunner is the minimal surface CircuitBreaker needs: a plain
@@ -190,9 +201,11 @@ func failureCountKey(pspAccountID string) string {
 // *redis.Client satisfies ScriptRunner directly). Pass
 // DefaultBreakerConfig unless a caller has a specific reason to
 // override the threshold/window/cooldown (tests do, to keep the
-// threshold small and avoid needing real wall-clock waits).
-func NewCircuitBreaker(client *redis.Client, config CircuitBreakerConfig) *CircuitBreaker {
-	return &CircuitBreaker{runner: redisScriptRunner{client: client}, config: config, now: time.Now}
+// threshold small and avoid needing real wall-clock waits). logger may
+// be nil (IsAvailable's fail-open path simply logs nothing in that
+// case) -- see IsAvailable's doc comment.
+func NewCircuitBreaker(client *redis.Client, config CircuitBreakerConfig, logger *slog.Logger) *CircuitBreaker {
+	return &CircuitBreaker{runner: redisScriptRunner{client: client}, config: config, now: time.Now, Logger: logger}
 }
 
 // newCircuitBreakerWithRunner is the test-only constructor accepting
@@ -247,13 +260,47 @@ func (b *CircuitBreaker) GetState(ctx context.Context, pspAccountID string) (Bre
 	return BreakerStateHalfOpen, nil
 }
 
-// IsAvailable mirrors isAvailable exactly: true unless the breaker is
-// fully open -- a half-open breaker still allows one trial attempt
-// through.
+// IsAvailable mirrors isAvailable's happy-path semantics exactly: true
+// unless the breaker is fully open -- a half-open breaker still allows
+// one trial attempt through.
+//
+// BUG FIX (backend review, 2026-07-10) -- fail-open/fail-closed
+// inconsistency: this method used to propagate GetState's error
+// verbatim (`return false, err`), which meant a single Redis blip while
+// reading breaker state didn't just fail THIS psp_account's
+// availability check -- it aborted the entire routing evaluation up
+// through availablePsp/Evaluate in rules.go (both simply `return nil,
+// err`/`return Decision{}, err` on any error from IsAvailable), so
+// routing could 500 for every psp_account even though every one of
+// them was actually healthy and enabled; Redis was merely slow or
+// briefly unreachable. That is exactly backwards for a defense-in-depth
+// safety net: this package's own RecordFailure/RecordSuccess errors are
+// already treated as non-fatal at their call site
+// (internal/api/payments.go's recordBreakerFailure/recordBreakerSuccess
+// both discard the error via `_ = ...`), and the newer, purpose-built
+// inbound rate limiter (internal/api/ratelimit.go) was deliberately
+// designed to fail open on exactly this class of error from the start
+// -- IsAvailable was the one place in this codebase's breaker/limiter
+// family that still failed CLOSED (by way of failing the whole
+// request) on an infra hiccup. An authorization decision must fail
+// closed (see TokenStore.Lookup/RequireWriteScope); a circuit breaker
+// deciding whether a PSP looks healthy is not one -- it must fail open,
+// exactly like the rate limiter, so a Redis outage degrades this
+// package to "route as if every breaker were closed" rather than
+// "refuse to route payments at all." The fix: treat a failed state read
+// as "available" (the same as a fresh, never-tripped breaker would
+// read) and log a warning instead of returning an error, so the failure
+// is visible in logs/alerts without being fatal to the request.
 func (b *CircuitBreaker) IsAvailable(ctx context.Context, pspAccountID string) (bool, error) {
 	state, err := b.GetState(ctx, pspAccountID)
 	if err != nil {
-		return false, err
+		if b.Logger != nil {
+			b.Logger.Warn("circuit breaker state read failed; failing open (treating psp_account as available)",
+				"error", err,
+				"psp_account_id", pspAccountID,
+			)
+		}
+		return true, nil
 	}
 	return state != BreakerStateOpen, nil
 }

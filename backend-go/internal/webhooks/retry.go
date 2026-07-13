@@ -66,3 +66,39 @@ func RecordFailureAndDecide(ctx context.Context, pool *pgxpool.Pool, metrics Met
 
 	return DecisionRetry, nil
 }
+
+// recordFailureAndWrapError centralizes "this failure should count
+// toward this webhook's retry/DLQ budget" so every otherwise-bare error
+// return in Normalize/Apply goes through the same attempt-increment
+// path RecordFailureAndDecide provides.
+//
+// BUG FIX (Stripe integration audit, 2026-07-12): before this fix,
+// RecordFailureAndDecide was only ever invoked for one specific failure
+// mode — an unresolved payment_id. Every OTHER failure in Normalize/
+// Apply (a transient DB error on any of their several queries, a JSON
+// unmarshal failure, an adapter-resolve error, any non-PaymentNotFound
+// error out of ApplyCanonicalEvents, or a failure marking the row
+// processed) returned a bare error with webhook_inbox.attempts never
+// incremented — leaving the row 'pending' indefinitely, since nothing
+// else in this codebase re-drives a stuck 'pending' row (gap-detection
+// resyncs payment STATE via independent PSP polling, but never touches
+// the webhook_inbox row itself or its attempts counter). A webhook that
+// kept hitting any of those errors would silently never reach the DLQ
+// ladder at all. Every one of those call sites now routes through this
+// helper, so any repeated failure — not just the one narrow case —
+// eventually reaches the same bounded retry/DLQ outcome.
+func recordFailureAndWrapError(ctx context.Context, deps Deps, inboxID string, psp string, cause error) error {
+	decision, decideErr := RecordFailureAndDecide(ctx, deps.Pool, deps.Metrics, inboxID, psp)
+	if decideErr != nil {
+		// Recording the failure itself failed (e.g. the DB call that
+		// increments attempts errored) — return the ORIGINAL cause, not
+		// decideErr, so the caller's log line still reflects what
+		// actually went wrong; decideErr is a secondary, best-effort
+		// bookkeeping failure, not the primary one worth surfacing.
+		return cause
+	}
+	if decision == DecisionDlq {
+		return fmt.Errorf("webhooks: inbox %s moved to dlq after %d failed attempts, last error: %w", inboxID, MaxWebhookAttempts, cause)
+	}
+	return cause
+}

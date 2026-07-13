@@ -1,5 +1,11 @@
 package solidgate
 
+import (
+	"fmt"
+
+	"github.com/alphapayments/payment-orchestrator/internal/adapters"
+)
+
 // Credentials mirrors the Stripe adapter's dev-only stand-in pattern
 // exactly — see internal/adapters/stripe/credentials.go's docblock for
 // the full rationale (production secret resolution is ADR-0003's
@@ -57,14 +63,40 @@ func ResolveCredentials(config ConfigCredentials, pspAccount PspAccount) (Creden
 		}
 	}
 
-	// Dev stand-in: same process-wide credentials regardless of the ref
-	// value — see stripe/credentials.go.
-	_ = pspAccount.SecretRef
+	// BUG FIX (Stripe integration audit, 2026-07-12): same fix as
+	// stripe/credentials.go — see that file's doc comment and
+	// internal/adapters/refenv.go for the full rationale. Default/empty
+	// secret_ref keeps today's process-wide credentials unchanged; any
+	// other secret_ref now requires its own ref-scoped env override and
+	// fails loudly rather than silently reusing this account's keys.
+	if adapters.IsDefaultSecretRef(pspAccount.SecretRef) {
+		return Credentials{
+			Mode:       config.Mode,
+			PublicKey:  config.PublicKey,
+			SecretKey:  config.SecretKey,
+			APIBaseURL: config.APIBaseURL,
+		}, nil
+	}
+
+	publicKey, ok := adapters.LookupRefScopedEnv("SOLIDGATE_PUBLIC_KEY", pspAccount.SecretRef)
+	if !ok {
+		return Credentials{}, &CredentialResolutionError{Message: fmt.Sprintf(
+			"psp_account.secret_ref=%q requires %s to be set on this process, but it is not.",
+			pspAccount.SecretRef, adapters.EnvVarNameForRef("SOLIDGATE_PUBLIC_KEY", pspAccount.SecretRef),
+		)}
+	}
+	secretKey, ok := adapters.LookupRefScopedEnv("SOLIDGATE_SECRET_KEY", pspAccount.SecretRef)
+	if !ok {
+		return Credentials{}, &CredentialResolutionError{Message: fmt.Sprintf(
+			"psp_account.secret_ref=%q requires %s to be set on this process, but it is not.",
+			pspAccount.SecretRef, adapters.EnvVarNameForRef("SOLIDGATE_SECRET_KEY", pspAccount.SecretRef),
+		)}
+	}
 
 	return Credentials{
 		Mode:       config.Mode,
-		PublicKey:  config.PublicKey,
-		SecretKey:  config.SecretKey,
+		PublicKey:  publicKey,
+		SecretKey:  secretKey,
 		APIBaseURL: config.APIBaseURL,
 	}, nil
 }

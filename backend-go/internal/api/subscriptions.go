@@ -31,9 +31,22 @@ package api
 // read_only-scoped MCP agent token can list/get subscriptions freely
 // but gets 403 on cancel, exactly like it would on a refund/void/
 // capture.
+//
+// POST /v1/subscriptions (Stripe integration audit, 2026-07-12, Task
+// #316) is this file's second mutating route, added later than the
+// three above — it turns a plans.go catalog row into an actual billing
+// subscription, closing the gap flagged by the audit: plans.go/
+// 1735777400000_plans.up.sql shipped a whole pricing-catalog feature
+// that internal/subscriptions.CreateSubscription had no caller for at
+// all. See handleCreateSubscription's own doc comment for the full
+// plan-to-subscription mapping, including how a trial-enabled plan's
+// trial period is represented and how it transitions to the plan's real
+// price (internal/subscriptions/subscriptions.go's
+// AdvanceSubscriptionPeriod).
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -66,7 +79,18 @@ type cancelSubscriptionRequest struct {
 	Reason string `json:"reason"`
 }
 
-// SubscriptionsRouteDeps is everything this file's three handlers need.
+// createSubscriptionRequest is the input to POST /v1/subscriptions.
+// StartAt is optional (RFC3339); omitted means "now," matching
+// internal/subscriptions.CreateSubscription's own StartAt-defaults-to-
+// time.Now() behavior.
+type createSubscriptionRequest struct {
+	PlanID          string  `json:"planId"`
+	CustomerID      string  `json:"customerId"`
+	PaymentMethodID string  `json:"paymentMethodId"`
+	StartAt         *string `json:"startAt"`
+}
+
+// SubscriptionsRouteDeps is everything this file's handlers need.
 type SubscriptionsRouteDeps struct {
 	Pool *pgxpool.Pool
 }
@@ -74,7 +98,31 @@ type SubscriptionsRouteDeps struct {
 func registerSubscriptionsRoutes(r chi.Router, deps SubscriptionsRouteDeps) {
 	r.Get("/subscriptions", handleListSubscriptions(deps))
 	r.Get("/subscriptions/{id}", handleGetSubscription(deps))
+	r.Post("/subscriptions", handleCreateSubscription(deps))
 	r.Post("/subscriptions/{id}/cancel", handleCancelSubscription(deps))
+}
+
+// planIntervalUnitToSubscriptionInterval maps plans.billing_interval_unit/
+// trial_interval_unit's vocabulary ("days"/"months"/"years" — see
+// 1735777400000_plans.up.sql's CHECK constraint) onto
+// internal/subscriptions.IntervalUnit's own, narrower vocabulary
+// ("day"/"week"/"month"/"year" — see 1735777000000_subscriptions.up.sql's
+// CHECK constraint). The two enums were designed independently (plans
+// predates any wiring to subscriptions) and don't share a spelling —
+// this is the one explicit translation point between them. There is no
+// "weeks" case: plans has never supported a weekly billing interval, so
+// there is nothing to map it from.
+func planIntervalUnitToSubscriptionInterval(planUnit string) (subscriptions.IntervalUnit, error) {
+	switch planUnit {
+	case "days":
+		return subscriptions.IntervalDay, nil
+	case "months":
+		return subscriptions.IntervalMonth, nil
+	case "years":
+		return subscriptions.IntervalYear, nil
+	default:
+		return "", fmt.Errorf("unrecognized plan billing interval unit %q", planUnit)
+	}
 }
 
 const subscriptionColumns = `id, customer_id, status, amount_minor_units, currency, interval_unit, interval_count, next_billing_at, canceled_at, cancel_reason`
@@ -178,6 +226,212 @@ func handleGetSubscription(deps SubscriptionsRouteDeps) http.HandlerFunc {
 		}
 
 		writeJSON(w, http.StatusOK, dto)
+	}
+}
+
+// handleCreateSubscription implements POST /v1/subscriptions: turns a
+// plans.go catalog row into a real, billing subscriptions row.
+//
+// PLAN -> SUBSCRIPTION MAPPING:
+//   - The plan must be type='recurring' (a 'one-off' plan has no
+//     billing_interval and cannot be subscribed to — it's a single
+//     charge, handled entirely through checkout, never through this
+//     route).
+//   - No trial: the subscription's first period bills
+//     base_price_minor_units/base_price_currency on
+//     billing_interval_amount/billing_interval_unit, starting now (or
+//     StartAt). PlanID is stored; post_trial_* stays NULL for this
+//     subscription's entire life.
+//   - Trial enabled: the subscription's FIRST period bills
+//     trial_price_minor_units/trial_price_currency on
+//     trial_interval_amount/trial_interval_unit instead, and
+//     post_trial_* is populated with the plan's real
+//     price/cadence — internal/subscriptions.AdvanceSubscriptionPeriod
+//     switches over to those values automatically the moment this first
+//     (trial) period's charge succeeds. See that function's own doc
+//     comment for the transition mechanics.
+//
+// SIMPLIFICATION, flagged explicitly rather than silently: this handler
+// always uses the plan's BASE trial/base price, never a
+// plan_price_rules per-country/currency override — full override
+// resolution (the same logic checkout_sessions.go's confirm path
+// applies) was judged out of scope for this pass; every subscription
+// created here bills in the plan's own base_price_currency/
+// trial_price_currency regardless of the customer's country. A future
+// pass extending this route with an optional countryCode input, and
+// resolving it against plan_price_rules the same way checkout does,
+// would close that gap.
+//
+// PSP ACCOUNT: taken directly from the chosen payment_method's own
+// psp_account_id, never re-resolved via routing — see
+// internal/subscriptions' package-top doc comment on why a subscription
+// must keep billing through the exact PSP account its instrument was
+// first tokenized against.
+func handleCreateSubscription(deps SubscriptionsRouteDeps) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		auth, ok := authFromContext(r.Context())
+		if !ok {
+			WriteProblem(w, http.StatusUnauthorized, "Missing or invalid API token", "")
+			return
+		}
+		if !RequireWriteScope(w, auth) {
+			return
+		}
+		if deps.Pool == nil {
+			WriteProblem(w, http.StatusNotImplemented, "Not implemented", ErrNotImplemented.Error())
+			return
+		}
+
+		var body createSubscriptionRequest
+		if !decodeJSONBody(w, r, &body) {
+			return
+		}
+		if body.PlanID == "" || body.CustomerID == "" || body.PaymentMethodID == "" {
+			WriteProblem(w, http.StatusBadRequest, "planId, customerId, and paymentMethodId are all required", "")
+			return
+		}
+		var startAt *time.Time
+		if body.StartAt != nil && *body.StartAt != "" {
+			parsed, err := time.Parse(time.RFC3339, *body.StartAt)
+			if err != nil {
+				WriteProblem(w, http.StatusBadRequest, "startAt must be an RFC3339 timestamp", "")
+				return
+			}
+			startAt = &parsed
+		}
+
+		var plan struct {
+			Type                  string
+			BillingIntervalAmount *int
+			BillingIntervalUnit   *string
+			BasePriceMinorUnits   int64
+			BasePriceCurrency     string
+			TrialEnabled          bool
+			TrialIntervalAmount   *int
+			TrialIntervalUnit     *string
+			TrialPriceMinorUnits  *int64
+			TrialPriceCurrency    *string
+		}
+		err := deps.Pool.QueryRow(r.Context(),
+			`SELECT type, billing_interval_amount, billing_interval_unit,
+			        base_price_minor_units, base_price_currency,
+			        trial_enabled, trial_interval_amount, trial_interval_unit,
+			        trial_price_minor_units, trial_price_currency
+			 FROM plans WHERE id = $1 AND merchant_entity_id = $2`,
+			body.PlanID, auth.MerchantEntityID,
+		).Scan(&plan.Type, &plan.BillingIntervalAmount, &plan.BillingIntervalUnit,
+			&plan.BasePriceMinorUnits, &plan.BasePriceCurrency,
+			&plan.TrialEnabled, &plan.TrialIntervalAmount, &plan.TrialIntervalUnit,
+			&plan.TrialPriceMinorUnits, &plan.TrialPriceCurrency)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				WriteProblem(w, http.StatusNotFound, "Plan not found", "")
+				return
+			}
+			WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			return
+		}
+		if plan.Type != "recurring" {
+			WriteProblem(w, http.StatusBadRequest, "Plan is not a recurring plan and cannot be subscribed to", "")
+			return
+		}
+		if plan.BillingIntervalAmount == nil || plan.BillingIntervalUnit == nil {
+			// Data-integrity problem, not a caller error — every
+			// type='recurring' plan should have both set by plans.go's own
+			// write-path validation.
+			WriteProblem(w, http.StatusInternalServerError, "Plan is missing its billing interval", "")
+			return
+		}
+		baseIntervalUnit, err := planIntervalUnitToSubscriptionInterval(*plan.BillingIntervalUnit)
+		if err != nil {
+			WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			return
+		}
+
+		var paymentMethod struct {
+			CustomerID       string
+			PspAccountID     string
+			IsActive         bool
+			MerchantEntityID string
+		}
+		err = deps.Pool.QueryRow(r.Context(),
+			`SELECT pm.customer_id, pm.psp_account_id, pm.is_active, c.merchant_entity_id
+			 FROM payment_methods pm
+			 JOIN customers c ON c.id = pm.customer_id
+			 WHERE pm.id = $1`,
+			body.PaymentMethodID,
+		).Scan(&paymentMethod.CustomerID, &paymentMethod.PspAccountID, &paymentMethod.IsActive, &paymentMethod.MerchantEntityID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				WriteProblem(w, http.StatusNotFound, "Payment method not found", "")
+				return
+			}
+			WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			return
+		}
+		if paymentMethod.MerchantEntityID != auth.MerchantEntityID {
+			WriteProblem(w, http.StatusNotFound, "Payment method not found", "")
+			return
+		}
+		if paymentMethod.CustomerID != body.CustomerID {
+			WriteProblem(w, http.StatusBadRequest, "Payment method does not belong to the given customer", "")
+			return
+		}
+		if !paymentMethod.IsActive {
+			WriteProblem(w, http.StatusConflict, "Payment method is not active", "")
+			return
+		}
+
+		input := subscriptions.CreateSubscriptionInput{
+			MerchantEntityID: auth.MerchantEntityID,
+			ProductID:        auth.ProductID,
+			CustomerID:       body.CustomerID,
+			PaymentMethodID:  body.PaymentMethodID,
+			PspAccountID:     paymentMethod.PspAccountID,
+			PlanID:           &body.PlanID,
+			StartAt:          startAt,
+		}
+		if plan.TrialEnabled {
+			if plan.TrialIntervalAmount == nil || plan.TrialIntervalUnit == nil || plan.TrialPriceMinorUnits == nil || plan.TrialPriceCurrency == nil {
+				WriteProblem(w, http.StatusInternalServerError, "Plan has trial_enabled but is missing trial fields", "")
+				return
+			}
+			trialIntervalUnit, err := planIntervalUnitToSubscriptionInterval(*plan.TrialIntervalUnit)
+			if err != nil {
+				WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+				return
+			}
+			input.AmountMinorUnits = *plan.TrialPriceMinorUnits
+			input.Currency = *plan.TrialPriceCurrency
+			input.IntervalUnit = trialIntervalUnit
+			input.IntervalCount = *plan.TrialIntervalAmount
+			input.PostTrialAmountMinorUnits = &plan.BasePriceMinorUnits
+			input.PostTrialCurrency = &plan.BasePriceCurrency
+			input.PostTrialIntervalUnit = &baseIntervalUnit
+			input.PostTrialIntervalCount = plan.BillingIntervalAmount
+		} else {
+			input.AmountMinorUnits = plan.BasePriceMinorUnits
+			input.Currency = plan.BasePriceCurrency
+			input.IntervalUnit = baseIntervalUnit
+			input.IntervalCount = *plan.BillingIntervalAmount
+		}
+
+		id, err := subscriptions.CreateSubscription(r.Context(), deps.Pool, input)
+		if err != nil {
+			WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			return
+		}
+
+		row := deps.Pool.QueryRow(r.Context(),
+			`SELECT `+subscriptionColumns+` FROM subscriptions WHERE id = $1`, id,
+		)
+		dto, err := scanSubscriptionRow(row)
+		if err != nil {
+			WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
+			return
+		}
+
+		writeJSON(w, http.StatusCreated, dto)
 	}
 }
 

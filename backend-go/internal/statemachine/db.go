@@ -149,6 +149,43 @@ type stableNameLookup func(eventType domain.CanonicalEventType) (string, bool)
 // internal/statemachine importing internal/api).
 type StableNameLookup = stableNameLookup
 
+// LedgerEntryWriter lets a caller record a ledger (transactions table)
+// row INSIDE the same database transaction as the state transition
+// that produced it, called only when transitionInTx's outcome is
+// "transitioned" (never for "late" or an invalid/rejected transition,
+// which never reach this point at all).
+//
+// BUG FIX (backend review, 2026-07-10) -- ledger write / state
+// transition atomicity: this parameter did not exist until now.
+// internal/webhooks/apply.go's ApplyCanonicalEvents used to call
+// Transition, let it commit, and only THEN make a SEPARATE,
+// non-transactional call to write the transactions ledger row --
+// exactly the "TRANSACTIONS-ROW TRANSACTION-BOUNDARY DECISION" that
+// file's own (now superseded) doc comment flagged loudly as a real,
+// deliberately-deferred gap: a crash between the state commit and the
+// ledger write left a `captured` (or `authorized`/`refunded`/
+// `dispute_lost`) payment with no matching `transactions` row, and
+// nothing would ever go back and create one. That doc comment
+// explained the fix was deferred specifically because Milestone 6 (the
+// ledger package) didn't exist yet in this port, so there was no stable
+// shape to build a same-transaction callback against. Milestone 6 has
+// since been built (internal/ledger), so that blocker no longer
+// applies -- recordLedgerEntry below is exactly the callback that
+// doc comment predicted this package would eventually need. tx is the
+// SAME Querier transitionInTx already has (a live pgx.Tx in production,
+// this package's own fakeTx in tests) -- returning a non-nil error from
+// recordLedgerEntry aborts transitionInTx, which propagates up through
+// Transition and skips tx.Commit entirely, so the deferred
+// tx.Rollback(ctx) undoes the state update and payment_events insert
+// too. That is the actual atomicity guarantee this fix buys: either the
+// state transition AND its ledger entry both land, or neither does.
+//
+// May be nil (no call site should pass nil in production, but tests
+// unconcerned with the ledger can omit it, exactly like
+// stableNameLookup's own nil-is-tolerated convention above) -- the
+// zero-value behavior is "never record a ledger entry," not a panic.
+type LedgerEntryWriter func(ctx context.Context, tx Querier, payment PaymentRow, toState domain.PaymentState) error
+
 // Querier is the minimal pgx surface this package needs from a
 // transaction handle — QueryRow and Exec, matching exactly what
 // Transition's body calls. Satisfied structurally by pgx.Tx (the real
@@ -179,8 +216,10 @@ type Pool interface {
 // it — the zero-value behavior is "never eligible," matching an event
 // type absent from STABLE_NAME_BY_EVENT_TYPE in the TS source, i.e.
 // fail safe by writing no outbox row rather than panicking on a nil
-// function).
-func Transition(ctx context.Context, pool Pool, paymentID string, event domain.CanonicalEvent, stableName stableNameLookup) (TransitionResult, error) {
+// function). recordLedgerEntry, if non-nil, is called in the SAME
+// transaction on a "transitioned" outcome — see LedgerEntryWriter's doc
+// comment for the atomicity guarantee this buys and the bug it fixes.
+func Transition(ctx context.Context, pool Pool, paymentID string, event domain.CanonicalEvent, stableName stableNameLookup, recordLedgerEntry LedgerEntryWriter) (TransitionResult, error) {
 	tx, err := pool.Begin(ctx)
 	if err != nil {
 		return TransitionResult{}, fmt.Errorf("statemachine: begin transaction: %w", err)
@@ -194,7 +233,7 @@ func Transition(ctx context.Context, pool Pool, paymentID string, event domain.C
 		_ = tx.Rollback(ctx)
 	}()
 
-	result, err := transitionInTx(ctx, tx, paymentID, event, stableName)
+	result, err := transitionInTx(ctx, tx, paymentID, event, stableName, recordLedgerEntry)
 	if err != nil {
 		return TransitionResult{}, err
 	}
@@ -210,7 +249,7 @@ func Transition(ctx context.Context, pool Pool, paymentID string, event domain.C
 // Querier) without needing a real pgx.Tx/live Postgres — mirroring
 // Phase 4's fakeScriptRunner-over-a-narrow-interface pattern. This is
 // the function every test in db_test.go actually calls.
-func transitionInTx(ctx context.Context, tx Querier, paymentID string, event domain.CanonicalEvent, stableName stableNameLookup) (TransitionResult, error) {
+func transitionInTx(ctx context.Context, tx Querier, paymentID string, event domain.CanonicalEvent, stableName stableNameLookup, recordLedgerEntry LedgerEntryWriter) (TransitionResult, error) {
 	var row PaymentRow
 	var state string
 	err := tx.QueryRow(ctx,
@@ -259,6 +298,20 @@ func transitionInTx(ctx context.Context, tx Querier, paymentID string, event dom
 
 	if err := insertTransitionEvent(ctx, tx, paymentID, outcome.From, outcome.To, event); err != nil {
 		return TransitionResult{}, err
+	}
+
+	// BUG FIX (backend review, 2026-07-10): the ledger (transactions
+	// table) entry for this transition is now written HERE, inside the
+	// same transaction as the state update and payment_events insert
+	// above, rather than by a separate post-commit call the caller used
+	// to make (see LedgerEntryWriter's doc comment for the full history
+	// and the atomicity guarantee this closes). Only reached on a
+	// "transitioned" outcome — late/invalid outcomes both return earlier
+	// and never call recordLedgerEntry.
+	if recordLedgerEntry != nil {
+		if err := recordLedgerEntry(ctx, tx, updatedRow, outcome.To); err != nil {
+			return TransitionResult{}, err
+		}
 	}
 
 	// Milestone 8, T8.4: only canonical events with a stable,

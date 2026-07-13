@@ -251,26 +251,84 @@ func checkStripeKeyPrefixes(raw rawEnv) []string {
 	return issues
 }
 
+// sensitiveEnvVars lists every env var whose value must never be
+// printed verbatim in a validation error message.
+//
+// BUG FIX (backend review, 2026-07-10): formatFieldError's "url" case
+// (and, before this fix, every other case with a %v/%q of
+// fieldErr.Value()) printed the field's raw value straight into the
+// aggregated error text — which Load's caller (cmd/api/main.go) then
+// writes to stderr at boot. A Postgres/Redis connection string
+// conventionally embeds credentials directly
+// (postgres://user:PASSWORD@host:5432/db, redis://:PASSWORD@host:6379)
+// — so a boot-time typo in DATABASE_URL or REDIS_URL (missing scheme, a
+// stray character, anything that fails the "url" validator tag) used to
+// print that embedded password straight into process logs, exactly the
+// class of leak this package's own "every failure must name the field
+// ... where safe to print" doc comment (top of this file) already
+// implicitly disclaims but the code didn't actually honor. Every value
+// this package prints now goes through redactedValue first.
+// EXPANDED (Stripe integration audit, 2026-07-12, Task #321): the
+// original list only covered DATABASE_URL/REDIS_URL — the two fields
+// the 2026-07-10 bug fix above was actually written to close. Every
+// other PSP/orchestration secret this package validates
+// (STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, HATCHET_CLIENT_TOKEN,
+// SOLIDGATE_SECRET_KEY, SOLIDGATE_WEBHOOK_SECRET_KEY) was left OUT,
+// meaning a future validator tag added to any of them (anything not
+// already special-cased in formatFieldError's switch above — the
+// "required"/"min" cases don't print a value today, but "oneof"/"gt"/
+// the default fallback case DO) would print that secret's raw value
+// straight into a boot-time error this process writes to stderr, with
+// nothing here to stop it — a defense-in-depth gap, not a currently
+// reachable leak given today's exact tag set, but exactly the kind of
+// gap a later, unrelated validation-rule change could silently turn
+// into one. STRIPE_PUBLISHABLE_KEY/SOLIDGATE_PUBLIC_KEY/
+// SOLIDGATE_WEBHOOK_PUBLIC_KEY are deliberately NOT added — like
+// Stripe's publishable key, these are designed to be public-safe (the
+// checkout SDK ships them to a browser directly), not secrets.
+var sensitiveEnvVars = map[string]bool{
+	"DATABASE_URL":              true,
+	"REDIS_URL":                 true,
+	"STRIPE_SECRET_KEY":         true,
+	"STRIPE_WEBHOOK_SECRET":     true,
+	"HATCHET_CLIENT_TOKEN":      true,
+	"SOLIDGATE_SECRET_KEY":      true,
+	"SOLIDGATE_WEBHOOK_SECRET_KEY": true,
+}
+
+// redactedValue returns value unchanged unless envVarName is in
+// sensitiveEnvVars, in which case it returns a fixed placeholder instead
+// — used everywhere formatFieldError would otherwise interpolate a raw
+// field value into an error message.
+func redactedValue(envVarName string, value any) any {
+	if sensitiveEnvVars[envVarName] {
+		return "[redacted]"
+	}
+	return value
+}
+
 // formatFieldError renders one validator.FieldError as a clear,
 // single-line issue: which field, what was expected. This is the
 // fail-loudly contract this package is held to after the API_PORT
 // production incident — every message names the field and the
-// validation rule that failed.
+// validation rule that failed — while never printing a raw value for a
+// field listed in sensitiveEnvVars (see that var's doc comment).
 func formatFieldError(fieldErr validator.FieldError) string {
 	field := envVarNameFor(fieldErr.StructField())
+	value := redactedValue(field, fieldErr.Value())
 	switch fieldErr.Tag() {
 	case "required":
 		return fmt.Sprintf("%s: required environment variable is missing", field)
 	case "oneof":
-		return fmt.Sprintf("%s: must be one of [%s], got %q", field, fieldErr.Param(), fmt.Sprint(fieldErr.Value()))
+		return fmt.Sprintf("%s: must be one of [%s], got %q", field, fieldErr.Param(), fmt.Sprint(value))
 	case "url":
-		return fmt.Sprintf("%s: must be a valid URL, got %q", field, fmt.Sprint(fieldErr.Value()))
+		return fmt.Sprintf("%s: must be a valid URL, got %q", field, fmt.Sprint(value))
 	case "gt":
-		return fmt.Sprintf("%s: must be greater than %s, got %v", field, fieldErr.Param(), fieldErr.Value())
+		return fmt.Sprintf("%s: must be greater than %s, got %v", field, fieldErr.Param(), value)
 	case "min":
 		return fmt.Sprintf("%s: must be at least %s character(s) long", field, fieldErr.Param())
 	default:
-		return fmt.Sprintf("%s: failed validation %q (got %v)", field, fieldErr.Tag(), fieldErr.Value())
+		return fmt.Sprintf("%s: failed validation %q (got %v)", field, fieldErr.Tag(), value)
 	}
 }
 

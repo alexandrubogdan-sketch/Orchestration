@@ -37,6 +37,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -47,6 +48,31 @@ import (
 	"github.com/alphapayments/payment-orchestrator/internal/adapters"
 	"github.com/alphapayments/payment-orchestrator/internal/domain"
 )
+
+// defaultHTTPClientTimeout bounds every outbound call this adapter
+// makes to Stripe's API.
+//
+// BUG FIX (backend review, 2026-07-10): New used to call sc.Init(key,
+// nil), which makes stripe-go fall back to its own default backend —
+// built on Go's zero-value http.Client, which has NO timeout at all
+// (http.Client{}'s Timeout field defaults to 0, meaning "never time
+// out"). A hung TCP connection or a Stripe-side stall could then block
+// the goroutine making the call indefinitely — no context deadline
+// existed anywhere in this call path to save it, since ctx cancellation
+// alone does not abort a stdlib http.Client request unless the request
+// was built with that ctx AND something (either the caller's context or
+// the client's own Timeout) actually fires; stripe-go's client.API
+// methods build the *http.Request from the ctx passed to them, so a
+// timeout here is enforced via ctx as stripe-go itself recommends, but
+// belt-and-suspenders: an explicit http.Client.Timeout also protects
+// against any code path in this adapter (or a future stripe-go version)
+// that ends up not threading ctx all the way through. 30s matches this
+// adapter's own DECLINED-vs-TECHNICAL-error framing: a real Stripe API
+// call should return well within a few seconds; 30s is generous
+// headroom before this adapter gives up and reports a TechnicalError
+// (which is retryable/failover-eligible per domain.IsEligibleForPspFailover)
+// rather than hanging the caller's own request forever.
+var defaultHTTPClientTimeout = 30 * time.Second
 
 // TechnicalError is a technical (non-decline) PSP failure — network
 // errors, rate limits, 5xx responses. Distinct from a decline (a normal
@@ -83,15 +109,63 @@ type Adapter struct {
 }
 
 // New constructs a Stripe Adapter.
+//
+// BUG FIX (Stripe integration audit, 2026-07-12, Task #319): opts.
+// APIVersion (config.Stripe.APIVersion, wired all the way through
+// registry.go's buildStripeAdapter — see that function's own
+// APIVersion: r.config.Stripe.APIVersion field) was accepted into this
+// Options struct but never actually applied anywhere in this
+// constructor. Every request this adapter ever made therefore went out
+// on whatever API version happened to be attached to the Stripe secret
+// key's Dashboard default at the time, NOT the version this codebase
+// was actually built/tested against (2026-06-24.dahlia, per this
+// package's config default) — a silent version drift that would only
+// surface the day Stripe's account-level default rolls forward and a
+// response shape this codebase assumes changes underneath it, with
+// nothing in this repository pinning it against that.
+//
+// stripesdk.APIVersion is a package-level var stripe-go's own request-
+// building code reads to set the Stripe-Version request header on every
+// call (this IS how stripe-go's documented API-version-pinning
+// mechanism works — there is no per-client.API version field to set
+// instead). It is therefore process-wide, not per-Adapter-instance:
+// fine here because this codebase's config model only ever carries one
+// STRIPE_API_VERSION per process (config.go's StripeAPIVersion is a
+// single required env var, not one per psp_account) — every
+// stripe.Adapter this registry ever constructs in a given process is
+// pinned to the exact same version regardless of which psp_account
+// resolved it. Set unconditionally at construction time (before this
+// adapter — or a process-wide sibling instance for a second Stripe
+// psp_account — ever issues a request), not lazily.
+//
+// LOW-CONFIDENCE, flagged per this file's own top doc comment
+// precedent: no live Stripe account or pkg.go.dev access in this build
+// environment to confirm stripesdk.APIVersion is exported with exactly
+// this name/type in v81 — re-verify before this ships.
 func New(opts Options) *Adapter {
+	if opts.APIVersion != "" {
+		stripesdk.APIVersion = opts.APIVersion
+	}
 	sc := opts.Client
 	if sc == nil {
 		sc = &client.API{}
-		// backend nil -> stripe-go's default HTTP backend, matching the
-		// TS adapter's own default-timeout/no-retry configuration
-		// intent (this adapter owns retry policy centrally in a later
-		// phase — never let the SDK retry silently).
-		sc.Init(opts.Credentials.SecretKey, nil)
+		// BUG FIX (backend review, 2026-07-10): previously sc.Init(key,
+		// nil), which left this adapter with NO HTTP timeout at all —
+		// see defaultHTTPClientTimeout's doc comment above for why that's
+		// dangerous. stripesdk.NewBackends(httpClient) builds a *Backends
+		// wired to our own *http.Client (confirmed against
+		// pkg.go.dev/github.com/stripe/stripe-go/v81's exported API,
+		// which lists NewBackends(httpClient) as a Backends constructor
+		// specifically for this — a historical stripe-go bug where a
+		// custom httpClient passed to NewBackends wasn't actually wired
+		// through, github.com/stripe/stripe-go issue #626, was fixed in
+		// PR #627 many major versions before v81), replacing stripe-go's
+		// own zero-timeout default rather than layering retry logic on
+		// top of it — this adapter still owns retry policy centrally in
+		// a later phase; a bounded timeout here is strictly about never
+		// hanging forever, not about retrying.
+		backends := stripesdk.NewBackends(&http.Client{Timeout: defaultHTTPClientTimeout})
+		sc.Init(opts.Credentials.SecretKey, backends)
 	}
 	declineMap := opts.DeclineMap
 	if declineMap == nil {
@@ -148,6 +222,26 @@ func (a *Adapter) CreatePayment(ctx context.Context, input adapters.CreatePaymen
 			},
 		}
 	}
+	// Stripe Tax (Stripe integration audit, 2026-07-12, Task #317): see
+	// adapters.CreatePaymentInput.CollectTax's own doc comment for where
+	// this flag comes from. Setting automatic_tax[enabled]=true on the
+	// PaymentIntent is the entirety of the API-side integration —
+	// Stripe computes and (on capture) collects the correct tax for the
+	// charge based on the connected account's Stripe Tax configuration
+	// and the customer's location. This does NOT itself turn Stripe Tax
+	// "on" for the connected account: registering tax jurisdictions and
+	// enabling Stripe Tax in the Stripe Dashboard is account-level setup
+	// only the account owner can do (docs.stripe.com/tax/set-up) — this
+	// adapter has no live Stripe account or Dashboard access in this
+	// build environment to perform or verify that setup, so this flag
+	// is a documented, correct API call whose real-world tax-collection
+	// effect depends on configuration this codebase cannot perform on
+	// the merchant's behalf.
+	if input.CollectTax {
+		params.AutomaticTax = &stripesdk.PaymentIntentAutomaticTaxParams{
+			Enabled: stripesdk.Bool(true),
+		}
+	}
 	params.SetIdempotencyKey(input.IdempotencyKey)
 	params.Context = ctx
 
@@ -174,6 +268,40 @@ func (a *Adapter) Capture(ctx context.Context, pspAttemptRef string, amount *dom
 		return adapters.AttemptResult{}, a.wrapTechnicalError(err, "capture")
 	}
 	return a.toAttemptResult(pi), nil
+}
+
+// CreateBillingPortalSession implements adapters.BillingPortalProvider
+// (Stripe integration audit, 2026-07-12, Task #318) — creates a
+// Stripe Billing Portal session for pspCustomerRef and returns its
+// hosted URL. This does NOT itself enable Stripe's Billing Portal for
+// the connected account: the account owner must configure the portal
+// (which features are exposed — cancel, update payment method, view
+// invoices, etc.) in the Stripe Dashboard first
+// (docs.stripe.com/billing/subscriptions/integrating-customer-portal) —
+// this adapter has no live Stripe account/Dashboard access in this
+// build environment to perform or verify that configuration, exactly
+// the same documented caveat CreatePayment's Stripe Tax wiring carries.
+//
+// LOW-CONFIDENCE API SHAPE, flagged per this file's own top doc comment
+// precedent: a.client.BillingPortalSessions.New(params) mirrors this
+// file's established a.client.<Resource>.New(params) pattern
+// (PaymentIntents, Refunds above) exactly, but there is no live Stripe
+// account or go.dev/pkg.go.dev access in this build environment to
+// confirm stripe-go v81's client.API actually exposes a
+// BillingPortalSessions field with this exact shape — re-verify against
+// pkg.go.dev/github.com/stripe/stripe-go/v81 before this ships.
+func (a *Adapter) CreateBillingPortalSession(ctx context.Context, pspCustomerRef string, returnURL string) (string, error) {
+	params := &stripesdk.BillingPortalSessionParams{
+		Customer:  stripesdk.String(pspCustomerRef),
+		ReturnURL: stripesdk.String(returnURL),
+	}
+	params.Context = ctx
+
+	session, err := a.client.BillingPortalSessions.New(params)
+	if err != nil {
+		return "", a.wrapTechnicalError(err, "create_billing_portal_session")
+	}
+	return session.URL, nil
 }
 
 // Void implements adapters.PspAdapter.
@@ -238,7 +366,7 @@ func (a *Adapter) GetPayment(ctx context.Context, pspAttemptRef string) (adapter
 
 // VerifyWebhook implements adapters.PspAdapter.
 func (a *Adapter) VerifyWebhook(rawBody []byte, headers map[string][]string) (adapters.VerifiedEvent, error) {
-	signatureHeader := firstHeader(headers, "stripe-signature")
+	signatureHeader := adapters.FirstHeader(headers, "stripe-signature")
 	if signatureHeader == "" {
 		return adapters.VerifiedEvent{}, adapters.NewInvalidSignatureError("stripe", "missing stripe-signature header")
 	}
@@ -560,47 +688,14 @@ func extractMetadata(event *stripesdk.Event) (map[string]string, bool) {
 	return withMetadata.Metadata, true
 }
 
-// firstHeader looks up key case-insensitively and returns the first
-// value, or "" if absent.
-//
-// BUG FIX (backend audit, 2026-07-07): this used to be a bare
-// `headers[key]` map lookup against a lowercase literal (e.g.
-// "stripe-signature", "paypal-auth-algo", "x-mock-signature"). That
-// was correct against every existing unit test in this package
-// (which all hand-build `map[string][]string{"stripe-signature": ...}`
-// with lowercase keys directly) but WRONG against the actual
-// production call site: internal/api/webhooks.go passes `r.Header`
-// (Go's net/http.Header) straight through internal/webhooks.Ingest
-// into this method. net/http's server ALWAYS canonicalizes incoming
-// header keys via textproto.CanonicalMIMEHeaderKey before populating
-// r.Header — "stripe-signature" becomes "Stripe-Signature",
-// "paypal-auth-algo" becomes "Paypal-Auth-Algo", etc. A bare
-// case-sensitive map lookup with a lowercase literal therefore NEVER
-// matched a real incoming request's headers, meaning every genuine
-// webhook from every PSP would silently fail signature verification
-// (VerifyWebhook would read "" for every header, fail to verify, and
-// return *adapters.InvalidSignatureError) while every unit test still
-// passed, because the tests bypass net/http entirely and hand-build
-// already-lowercase maps. This is a fail-CLOSED bug (rejects real
-// webhooks rather than accepting forged ones -- no security
-// regression from this specific defect), but it is a complete
-// functional break of the webhook ingestion pipeline against real PSP
-// traffic. Fixed by scanning all keys with strings.EqualFold instead
-// of an exact map lookup, which is correct regardless of whether the
-// caller passes canonicalized net/http headers (real traffic) or
-// lowercase literals (every existing test) -- no test needed to
-// change.
-func firstHeader(headers map[string][]string, key string) string {
-	if headers == nil {
-		return ""
-	}
-	for k, values := range headers {
-		if strings.EqualFold(k, key) && len(values) > 0 {
-			return values[0]
-		}
-	}
-	return ""
-}
+// firstHeader used to live here as its own copy — DEDUPLICATION fix
+// (backend review, 2026-07-10): identical byte-for-byte to the copy
+// every other PSP adapter package (solidgate, paypal, mock) also
+// carried. Hoisted into the shared internal/adapters package (already
+// imported by every adapter) as adapters.FirstHeader — see that
+// function's doc comment for the full history, including the original
+// 2026-07-07 case-insensitivity bug fix this preserves. Every call site
+// below now calls adapters.FirstHeader directly.
 
 // isoToUnix parses an RFC3339 timestamp into Unix seconds, the shape
 // stripe.RangeQueryParams.GreaterThanOrEqual expects.

@@ -27,7 +27,7 @@ type UnimplementedPaymentsStore struct{}
 func (UnimplementedPaymentsStore) ResolveCustomerID(context.Context, string, *string, *string) (string, error) {
 	return "", ErrNotImplemented
 }
-func (UnimplementedPaymentsStore) FindPaymentByIdempotencyKey(context.Context, string) (PaymentRow, bool, error) {
+func (UnimplementedPaymentsStore) FindPaymentByIdempotencyKey(context.Context, string, string) (PaymentRow, bool, error) {
 	return PaymentRow{}, false, ErrNotImplemented
 }
 func (UnimplementedPaymentsStore) ResolveRouting(context.Context, string, string, string, string) (RoutingDecision, error) {

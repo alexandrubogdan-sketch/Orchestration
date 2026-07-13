@@ -2,14 +2,32 @@ package api
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/alphapayments/payment-orchestrator/internal/webhooks"
 )
+
+// maxWebhookBodyBytes bounds how much of a POST /webhooks/{psp} request
+// body this handler will ever read into memory. This route sits
+// OUTSIDE the /v1 Bearer-auth group by design (a PSP webhook has no API
+// token to send — see this file's own top doc comment and router.go's
+// RegisterWebhookRoutes), which makes it the one HTTP endpoint in this
+// codebase reachable by a fully unauthenticated caller before any
+// signature has been checked. io.ReadAll(r.Body) with no limit lets
+// that caller hand this process an arbitrarily large body — gigabytes,
+// if they want — and have it all buffered into a single []byte before
+// VerifyWebhook ever gets a chance to reject it, a textbook memory-
+// exhaustion DoS against a public route. 5 MiB is generously above any
+// real Stripe/Solidgate/PayPal webhook payload (documented PSP webhook
+// bodies run from a few KB up to, at most, low hundreds of KB), leaving
+// headroom without leaving the limit effectively unbounded.
+const maxWebhookBodyBytes = 5 << 20 // 5 MiB
 
 // This file is the HTTP transport layer for POST /webhooks/{psp} — the
 // Go port of src/webhooks/route.ts's Fastify route registration.
@@ -40,6 +58,15 @@ import (
 type WebhookDeps struct {
 	Webhooks webhooks.Deps
 	Logger   *slog.Logger
+	// InFlight tracks every in-progress background Normalize goroutine
+	// this handler starts (see handleWebhook's dispatch comment below),
+	// so cmd/api/main.go's graceful shutdown can wait for them to drain
+	// — bounded by its own timeout — instead of the process exiting out
+	// from under them mid-normalize. Optional: nil is treated the same
+	// as "don't track" (every call is nil-checked before use), so
+	// existing tests that build a WebhookDeps without one keep working
+	// unchanged.
+	InFlight *sync.WaitGroup
 }
 
 // registerWebhookRoutes registers POST /webhooks/{psp} on r. Called by
@@ -53,8 +80,23 @@ func handleWebhook(deps WebhookDeps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		psp := chi.URLParam(r, "psp")
 
+		// BUG FIX (backend review, 2026-07-10): r.Body was previously read
+		// via a bare io.ReadAll with no size limit — see maxWebhookBodyBytes'
+		// doc comment for why that is a real memory-exhaustion DoS against
+		// this specifically unauthenticated route. http.MaxBytesReader
+		// enforces the limit AND closes the underlying body for us once
+		// the limit is exceeded, matching net/http's own documented usage
+		// pattern (it also arranges for the connection to be closed rather
+		// than drained, since a caller sending an oversized body is not
+		// worth the cost of reading and discarding the rest of it).
+		r.Body = http.MaxBytesReader(w, r.Body, maxWebhookBodyBytes)
 		rawBody, err := io.ReadAll(r.Body)
 		if err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				WriteProblem(w, http.StatusRequestEntityTooLarge, "Request body too large", "")
+				return
+			}
 			WriteProblem(w, http.StatusBadRequest, "Failed to read request body", "")
 			return
 		}
@@ -92,7 +134,28 @@ func handleWebhook(deps WebhookDeps) http.HandlerFunc {
 			inboxID := result.InboxID
 			logger := deps.Logger
 			whDeps := deps.Webhooks
+			// BUG FIX (backend review, 2026-07-10): this goroutine is
+			// deliberately detached from the request (context.Background(),
+			// not r.Context() — see the comment above), which also means
+			// it was previously invisible to cmd/api/main.go's graceful
+			// shutdown: server.Shutdown(ctx) only waits for in-flight HTTP
+			// handlers to return, and this handler had already returned by
+			// the time this goroutine finishes. A SIGTERM during a deploy
+			// could kill the process mid-Normalize with no signal at all —
+			// the row would sit un-normalized until gap-detection's cron
+			// eventually caught it (correct end-state, but a needless delay
+			// on every routine deploy, not just a crash). deps.InFlight (a
+			// *sync.WaitGroup owned by main.go) now tracks this goroutine so
+			// shutdown can wait for it — bounded by main.go's own timeout,
+			// so one genuinely stuck Normalize call still can't block
+			// shutdown forever.
+			if deps.InFlight != nil {
+				deps.InFlight.Add(1)
+			}
 			go func() {
+				if deps.InFlight != nil {
+					defer deps.InFlight.Done()
+				}
 				if err := webhooks.Normalize(context.Background(), whDeps, inboxID); err != nil && logger != nil {
 					logger.Error("webhook.normalize failed — will be picked up by gap-detection or a manual replay",
 						"inbox_id", inboxID, "psp", psp, "error", err)

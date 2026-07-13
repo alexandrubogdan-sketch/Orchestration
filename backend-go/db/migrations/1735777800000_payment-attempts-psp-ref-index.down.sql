@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS payment_attempts_psp_attempt_ref_uidx;

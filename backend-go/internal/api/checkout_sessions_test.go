@@ -95,7 +95,7 @@ func (s *fakePaymentsStore) ResolveCustomerID(_ context.Context, merchantEntityI
 	return id, nil
 }
 
-func (s *fakePaymentsStore) FindPaymentByIdempotencyKey(_ context.Context, idempotencyKey string) (PaymentRow, bool, error) {
+func (s *fakePaymentsStore) FindPaymentByIdempotencyKey(_ context.Context, _ string, idempotencyKey string) (PaymentRow, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id, ok := s.paymentsByIdemKey[idempotencyKey]

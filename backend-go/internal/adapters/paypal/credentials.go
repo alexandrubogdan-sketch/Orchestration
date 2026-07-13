@@ -1,5 +1,11 @@
 package paypal
 
+import (
+	"fmt"
+
+	"github.com/alphapayments/payment-orchestrator/internal/adapters"
+)
+
 // Credentials is the resolved, ready-to-use PayPal credentials for one
 // psp_account row. Mirrors stripe/credentials.go's Credentials struct
 // shape/naming style exactly. Never logged (the observability
@@ -94,10 +100,6 @@ func ResolveCredentials(config ConfigCredentials, pspAccount PspAccount) (Creden
 		}
 	}
 
-	// Dev stand-in: same process-wide credentials regardless of the ref
-	// value — see stripe/credentials.go.
-	_ = pspAccount.SecretRef
-
 	apiBaseURL := config.APIBaseURL
 	if apiBaseURL == "" {
 		if config.Mode == "production" {
@@ -107,11 +109,53 @@ func ResolveCredentials(config ConfigCredentials, pspAccount PspAccount) (Creden
 		}
 	}
 
+	// BUG FIX (Stripe integration audit, 2026-07-12): same fix as
+	// stripe/credentials.go and solidgate/credentials.go — see those
+	// files and internal/adapters/refenv.go for the full rationale.
+	// Default/empty secret_ref keeps today's process-wide credentials
+	// unchanged; any other secret_ref now requires its own ref-scoped
+	// env override and fails loudly rather than silently reusing this
+	// account's ClientID/ClientSecret.
+	if adapters.IsDefaultSecretRef(pspAccount.SecretRef) {
+		return Credentials{
+			Mode:         config.Mode,
+			ClientID:     config.ClientID,
+			ClientSecret: config.ClientSecret,
+			WebhookID:    config.WebhookID,
+			APIBaseURL:   apiBaseURL,
+		}, nil
+	}
+
+	clientID, ok := adapters.LookupRefScopedEnv("PAYPAL_CLIENT_ID", pspAccount.SecretRef)
+	if !ok {
+		return Credentials{}, &CredentialResolutionError{Message: fmt.Sprintf(
+			"psp_account.secret_ref=%q requires %s to be set on this process, but it is not.",
+			pspAccount.SecretRef, adapters.EnvVarNameForRef("PAYPAL_CLIENT_ID", pspAccount.SecretRef),
+		)}
+	}
+	clientSecret, ok := adapters.LookupRefScopedEnv("PAYPAL_CLIENT_SECRET", pspAccount.SecretRef)
+	if !ok {
+		return Credentials{}, &CredentialResolutionError{Message: fmt.Sprintf(
+			"psp_account.secret_ref=%q requires %s to be set on this process, but it is not.",
+			pspAccount.SecretRef, adapters.EnvVarNameForRef("PAYPAL_CLIENT_SECRET", pspAccount.SecretRef),
+		)}
+	}
+	// WebhookID isn't a secret, but it's still per-account (each PayPal
+	// account registers its own webhook in the developer dashboard) —
+	// fall back to the default account's WebhookID only if no ref-scoped
+	// override is set, since a missing WebhookID isn't a resolution
+	// failure in the same way a missing secret is (verification simply
+	// won't match this account's webhooks until it's configured).
+	webhookID, ok := adapters.LookupRefScopedEnv("PAYPAL_WEBHOOK_ID", pspAccount.SecretRef)
+	if !ok {
+		webhookID = config.WebhookID
+	}
+
 	return Credentials{
 		Mode:         config.Mode,
-		ClientID:     config.ClientID,
-		ClientSecret: config.ClientSecret,
-		WebhookID:    config.WebhookID,
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		WebhookID:    webhookID,
 		APIBaseURL:   apiBaseURL,
 	}, nil
 }

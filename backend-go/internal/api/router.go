@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -93,6 +94,12 @@ type Deps struct {
 	// narrow store interface). May be nil, in which case the route 501s.
 	SubscriptionsPool *pgxpool.Pool
 
+	// BillingPortalPool backs POST /v1/customers/{id}/billing-portal-
+	// session — see billing_portal.go's top doc comment. Same "raw pool,
+	// no dedicated store interface" reasoning as SubscriptionsPool
+	// above. May be nil, in which case the route 501s.
+	BillingPortalPool *pgxpool.Pool
+
 	// PlansStore backs the plans resource — a merchant's configurable
 	// pricing catalog (recurring/one-off plans, per-country/currency
 	// price override rules, an optional trial). See plans.go's top doc
@@ -108,6 +115,18 @@ type Deps struct {
 	// adapters.PspAdapter (Phase 2). Required — every payments route
 	// that talks to a PSP goes through this.
 	Registry *registry.Registry
+
+	// CheckoutRateLimiter/CheckoutRateLimitConfig back the inbound,
+	// per-client-IP rate limit on the two unauthenticated public checkout
+	// routes (see ratelimit.go's top doc comment for the card-testing
+	// attack this closes). CheckoutRateLimiter may be nil — e.g. in a
+	// test that doesn't wire Redis, or if a deploy genuinely has no
+	// Redis available — in which case rateLimitPublicCheckoutRoute runs
+	// the wrapped handler unwrapped rather than failing to boot;
+	// CheckoutRateLimitConfig, if left zero-valued, falls back to
+	// DefaultPublicCheckoutRateLimitConfig.
+	CheckoutRateLimiter     PublicRateLimiterStore
+	CheckoutRateLimitConfig PublicCheckoutRateLimitConfig
 
 	// Breaker records PSP call outcomes for Milestone 5's circuit
 	// breaker — see payments.go's CircuitBreaker doc comment. May be
@@ -236,13 +255,15 @@ func BuildRouter(deps Deps) *chi.Mux {
 	// under "/v1/checkout-sessions/{id}/..." — flagged there as the
 	// single riskiest unverified routing decision in this change.
 	checkoutSessionsDeps := CheckoutSessionsRouteDeps{
-		Store:         deps.CheckoutSessionsStore,
-		PaymentsStore: deps.PaymentsStore,
-		Registry:      deps.Registry,
-		Idempotency:   deps.Idempotency,
-		Cache:         deps.Cache,
-		Logger:        deps.Logger,
-		Breaker:       deps.Breaker,
+		Store:           deps.CheckoutSessionsStore,
+		PaymentsStore:   deps.PaymentsStore,
+		Registry:        deps.Registry,
+		Idempotency:     deps.Idempotency,
+		Cache:           deps.Cache,
+		Logger:          deps.Logger,
+		Breaker:         deps.Breaker,
+		RateLimiter:     deps.CheckoutRateLimiter,
+		RateLimitConfig: deps.CheckoutRateLimitConfig,
 	}
 	registerPublicCheckoutSessionRoutes(r, checkoutSessionsDeps)
 
@@ -300,6 +321,25 @@ func BuildRouter(deps Deps) *chi.Mux {
 		registerSubscriptionsRoutes(v1, SubscriptionsRouteDeps{
 			Pool: deps.SubscriptionsPool,
 		})
+		// POST /v1/webhooks/{inboxId}/replay — Bearer-authenticated,
+		// scope-checked (RequireWriteScope); see webhook_replay.go's top
+		// doc comment. Reuses deps.Webhook.Webhooks in full (including its
+		// own Pool field) rather than threading a separate pool through —
+		// the same webhooks.Deps the unauthenticated POST /webhooks/{psp}
+		// route already carries — so no new top-level Deps field is
+		// needed for this route at all.
+		registerWebhookReplayRoutes(v1, WebhookReplayRouteDeps{
+			Pool:     deps.Webhook.Webhooks.Pool,
+			Webhooks: deps.Webhook.Webhooks,
+			Logger:   deps.Logger,
+		})
+		// POST /v1/customers/{id}/billing-portal-session —
+		// Bearer-authenticated, scope-checked (RequireWriteScope); see
+		// billing_portal.go's top doc comment.
+		registerBillingPortalRoutes(v1, BillingPortalRouteDeps{
+			Pool:     deps.BillingPortalPool,
+			Registry: deps.Registry,
+		})
 	})
 
 	return r
@@ -343,10 +383,61 @@ func recoverMiddleware(logger *slog.Logger) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if rec := recover(); rec != nil {
+					// BUG FIX (backend review, 2026-07-10), part 1: log
+					// the actual stack trace, not just the recovered
+					// value. "panic", rec alone gives you WHAT panicked
+					// (an error string, a nil-pointer message, ...) but
+					// not WHERE — for a panic surfacing in production
+					// hours after deploy, the call stack is usually the
+					// only thing that makes the bug findable at all.
+					// debug.Stack() captures the stack of the goroutine
+					// calling it, i.e. this deferred func — which, since
+					// Go unwinds the panic through every deferred call in
+					// the panicking goroutine before recover() runs here,
+					// still includes every frame from the original panic
+					// site down to this point.
 					logger.Error("panic recovered",
 						"request_id", middleware.GetReqID(r.Context()),
 						"panic", rec,
+						"stack", string(debug.Stack()),
 					)
+
+					// BUG FIX (backend review, 2026-07-10), part 2: guard
+					// against writing a second, conflicting response on
+					// top of one a handler had already started writing
+					// before it panicked (e.g. it called
+					// w.WriteHeader(200) and streamed part of a JSON body,
+					// then panicked mid-write) — WriteProblem below would
+					// otherwise call w.WriteHeader again (a no-op status-
+					// wise per net/http, but logged by the stdlib as
+					// "superfluous response.WriteHeader call" and, worse,
+					// would append a problem+json body AFTER whatever
+					// partial body already went out, producing a
+					// response that is neither valid JSON nor a clean
+					// 500 — silently corrupt from the client's point of
+					// view, with no signal anything went wrong).
+					//
+					// w here is requestLoggingMiddleware's
+					// middleware.WrapResponseWriter (this middleware is
+					// registered immediately after it in BuildRouter, and
+					// chi's middleware chain passes each wrapped writer
+					// down to the next), whose Status() is documented to
+					// return 0 "if one has not yet been sent" — the
+					// signal this guard needs. If w is ever NOT that
+					// wrapper (e.g. this middleware is reused from a
+					// different registration order in the future), the
+					// type assertion simply fails and this falls back to
+					// today's original behavior of always attempting
+					// WriteProblem, so this is purely additive safety,
+					// never a new failure mode.
+					if ww, ok := w.(middleware.WrapResponseWriter); ok && ww.Status() != 0 {
+						logger.Error("panic occurred after the response had already started; leaving the partial response as-is instead of double-writing",
+							"request_id", middleware.GetReqID(r.Context()),
+							"status", ww.Status(),
+							"bytes_written", ww.BytesWritten(),
+						)
+						return
+					}
 					WriteProblem(w, http.StatusInternalServerError, "Internal Server Error", "")
 				}
 			}()

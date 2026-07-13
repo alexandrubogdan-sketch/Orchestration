@@ -1,5 +1,11 @@
 package stripe
 
+import (
+	"fmt"
+
+	"github.com/alphapayments/payment-orchestrator/internal/adapters"
+)
+
 // Credentials is the resolved, ready-to-use Stripe credentials for one
 // psp_account row. Never logged (the observability package's redaction
 // list catches client_secret and anything keyed card/number/etc. at any
@@ -50,19 +56,34 @@ type PspAccount struct {
 // publishable_key_ref/webhook_secret_ref (ADR-0005) into real
 // credentials.
 //
-// THIS IS A DEV-ONLY STAND-IN. Production secret resolution — reading
-// from AWS Secrets Manager/Vault/Doppler by the *_ref value — is an
-// infra integration explicitly deferred by ADR-0003 ("infra decision
-// outside this repo's control"). Wiring a real backend here means
-// implementing this same function signature against that backend;
-// every caller in this codebase already goes through this function,
-// not os.Getenv directly, so the swap is contained to this one file.
+// BUG FIX (Stripe integration audit, 2026-07-12): this used to discard
+// pspAccount.SecretRef entirely and always return the single
+// process-wide config.Stripe credentials, regardless of which
+// psp_account asked — meaning two same-mode Stripe psp_accounts
+// silently shared one secret key AND one webhook secret. See
+// internal/adapters/refenv.go's doc comment for the full history and
+// why that's a real data-integrity bug (webhook misattribution), not
+// just a multi-tenancy nicety. Now: pspAccount.SecretRef ==
+// "" or "default" (every psp_accounts row created before this fix, and
+// the common single-account case) still resolves to config.Stripe
+// exactly as before — this is purely additive for that case. Any other
+// secret_ref value now resolves to a genuinely distinct credential set
+// via STRIPE_SECRET_KEY__<REF>/STRIPE_PUBLISHABLE_KEY__<REF>/
+// STRIPE_WEBHOOK_SECRET__<REF> env vars, and FAILS LOUDLY with a
+// CredentialResolutionError — rather than silently falling back to the
+// default account's credentials — if those aren't all set. A real
+// secrets-manager-backed implementation (AWS Secrets Manager/Vault/
+// Doppler, fetching by the ref's actual ARN/name) remains the correct
+// long-term answer and is still explicitly deferred by ADR-0003 ("infra
+// decision outside this repo's control"); every caller in this codebase
+// already goes through this function, not os.Getenv/a secrets client
+// directly, so that swap is still contained to this one file.
 //
-// The dev fallback below only works for the *one* set of credentials
-// the process's own env provides (config.Stripe), and only if the
-// requested psp_account.Mode matches config.Stripe.Mode — this catches
-// the common local-dev mistake of a psp_account row marked "production"
-// while the process only has sandbox credentials loaded.
+// The dev/default fallback below only works for the *one* set of
+// credentials the process's own env provides (config.Stripe), and only
+// if the requested psp_account.Mode matches config.Stripe.Mode — this
+// catches the common local-dev mistake of a psp_account row marked
+// "production" while the process only has sandbox credentials loaded.
 func ResolveCredentials(config ConfigCredentials, pspAccount PspAccount) (Credentials, error) {
 	if pspAccount.Mode != config.Mode {
 		return Credentials{}, &CredentialResolutionError{
@@ -72,19 +93,43 @@ func ResolveCredentials(config ConfigCredentials, pspAccount PspAccount) (Creden
 		}
 	}
 
-	// In dev/CI, every psp_account's secret_ref resolves to the same
-	// process-wide env credentials, regardless of the ref's actual
-	// value — there's only one Stripe account configured locally. A
-	// real secrets-manager-backed implementation would use
-	// pspAccount.SecretRef (an ARN/name) to fetch a DIFFERENT secret per
-	// account.
-	_ = pspAccount.SecretRef
+	if adapters.IsDefaultSecretRef(pspAccount.SecretRef) {
+		return Credentials{
+			Mode:           config.Mode,
+			SecretKey:      config.SecretKey,
+			PublishableKey: config.PublishableKey,
+			WebhookSecret:  config.WebhookSecret,
+		}, nil
+	}
+
+	secretKey, ok := adapters.LookupRefScopedEnv("STRIPE_SECRET_KEY", pspAccount.SecretRef)
+	if !ok {
+		return Credentials{}, &CredentialResolutionError{Message: fmt.Sprintf(
+			"psp_account.secret_ref=%q requires %s to be set on this process, but it is not — each non-default "+
+				"Stripe secret_ref needs its own ref-scoped env var override; see internal/adapters/refenv.go.",
+			pspAccount.SecretRef, adapters.EnvVarNameForRef("STRIPE_SECRET_KEY", pspAccount.SecretRef),
+		)}
+	}
+	publishableKey, ok := adapters.LookupRefScopedEnv("STRIPE_PUBLISHABLE_KEY", pspAccount.SecretRef)
+	if !ok {
+		return Credentials{}, &CredentialResolutionError{Message: fmt.Sprintf(
+			"psp_account.secret_ref=%q requires %s to be set on this process, but it is not.",
+			pspAccount.SecretRef, adapters.EnvVarNameForRef("STRIPE_PUBLISHABLE_KEY", pspAccount.SecretRef),
+		)}
+	}
+	webhookSecret, ok := adapters.LookupRefScopedEnv("STRIPE_WEBHOOK_SECRET", pspAccount.SecretRef)
+	if !ok {
+		return Credentials{}, &CredentialResolutionError{Message: fmt.Sprintf(
+			"psp_account.secret_ref=%q requires %s to be set on this process, but it is not.",
+			pspAccount.SecretRef, adapters.EnvVarNameForRef("STRIPE_WEBHOOK_SECRET", pspAccount.SecretRef),
+		)}
+	}
 
 	return Credentials{
 		Mode:           config.Mode,
-		SecretKey:      config.SecretKey,
-		PublishableKey: config.PublishableKey,
-		WebhookSecret:  config.WebhookSecret,
+		SecretKey:      secretKey,
+		PublishableKey: publishableKey,
+		WebhookSecret:  webhookSecret,
 	}, nil
 }
 

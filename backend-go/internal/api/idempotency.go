@@ -231,6 +231,31 @@ func cacheKeyFor(key string) string {
 	return "idempotency:response:" + key
 }
 
+// scopeIdempotencyKey namespaces a caller-supplied Idempotency-Key by
+// tenant before it ever reaches Postgres or Redis.
+//
+// BUG FIX (backend review, 2026-07-10): idempotency_keys.key is a bare
+// global primary key, and cacheKeyFor built the Redis key from the raw
+// header value alone — neither was scoped to the caller's product/
+// tenant. Two different merchants who both happen to send
+// `Idempotency-Key: "abc"` (entirely plausible: sequential ids, a
+// shared client library's default, or a deliberately hostile guess)
+// would collide on the exact same idempotency_keys row and Redis cache
+// entry. Concretely: if merchant A's "abc" request completes first and
+// its response gets cached, merchant B's unrelated "abc" request for
+// the identical method+path+body shape (a very ordinary POST
+// /v1/payments payload shape, not necessarily identical PII) would
+// read merchant A's completed row and be handed merchant A's cached
+// response — a cross-tenant data leak through the idempotency layer
+// itself, structurally the same class of bug as #290's
+// FindPaymentByIdempotencyKey IDOR but one layer down, in the
+// idempotency primitive every mutating route shares. Namespacing by
+// scope (the caller's product_id) makes two tenants' identical raw
+// keys land in provably disjoint rows/cache entries.
+func scopeIdempotencyKey(scope string, key string) string {
+	return scope + ":" + key
+}
+
 // IdempotencyDeps mirrors the TS IdempotencyDeps interface.
 type IdempotencyDeps struct {
 	Store IdempotencyStore
@@ -300,12 +325,28 @@ func pollForCompletion(ctx context.Context, store IdempotencyStore, key string) 
 //     with the same key gets a fresh attempt) and the error is returned
 //     to the caller as-is, matching the TS `catch (err) { await
 //     deps.db.deleteFrom(...); throw err; }` block exactly (no error
-//     wrapping).
+//     wrapping). A panic inside handler() gets the identical row
+//     cleanup via runHandlerRecoveringPanics before being re-panicked —
+//     see that function's doc comment for why this was a real, wedged-
+//     key bug, not just defense in depth.
 //   - On success, the row is marked completed and the result is cached
 //     in Redis with the same TTL as every other cache-write path.
+//
+// scope namespaces key (see scopeIdempotencyKey's doc comment) — every
+// caller passes the requesting token's auth.ProductID (payments.go,
+// checkout_sessions.go pass session.ProductID, the same tenant boundary
+// #290's FindPaymentByIdempotencyKey fix uses), so two different
+// tenants can never collide on the same idempotency_keys row or Redis
+// cache entry even if they submit byte-identical Idempotency-Key header
+// values. Every IdempotencyStore/IdempotencyCache call below uses the
+// scoped key; only the two client-facing errors (IdempotencyConflictError,
+// IdempotencyStillInProgressError) report the caller's original,
+// unscoped key back to them — a caller has no reason to see (or need
+// to know) the internal scope prefix in its own error message.
 func WithIdempotencyKey(
 	ctx context.Context,
 	deps IdempotencyDeps,
+	scope string,
 	key string,
 	request IdempotentRequestDescriptor,
 	handler func(ctx context.Context) (IdempotentResult, error),
@@ -314,9 +355,10 @@ func WithIdempotencyKey(
 	if err != nil {
 		return IdempotentOutcome{}, err
 	}
+	scopedKey := scopeIdempotencyKey(scope, key)
 
 	if deps.Cache != nil {
-		cachedRaw, found, err := deps.Cache.Get(ctx, cacheKeyFor(key))
+		cachedRaw, found, err := deps.Cache.Get(ctx, cacheKeyFor(scopedKey))
 		if err != nil {
 			return IdempotentOutcome{}, err
 		}
@@ -332,13 +374,13 @@ func WithIdempotencyKey(
 		}
 	}
 
-	insertErr := deps.Store.Insert(ctx, key, requestHash)
+	insertErr := deps.Store.Insert(ctx, scopedKey, requestHash)
 	if insertErr != nil {
 		if !errors.Is(insertErr, ErrIdempotencyKeyExists) {
 			return IdempotentOutcome{}, insertErr
 		}
 
-		row, err := pollForCompletion(ctx, deps.Store, key)
+		row, err := pollForCompletion(ctx, deps.Store, scopedKey)
 		if err != nil {
 			return IdempotentOutcome{}, err
 		}
@@ -348,14 +390,14 @@ func WithIdempotencyKey(
 
 		result := IdempotentResult{Status: row.ResponseStatus, Body: row.ResponseBody}
 		if deps.Cache != nil {
-			if cacheErr := setCachedResult(ctx, deps.Cache, key, requestHash, result); cacheErr != nil {
+			if cacheErr := setCachedResult(ctx, deps.Cache, scopedKey, requestHash, result); cacheErr != nil {
 				return IdempotentOutcome{}, cacheErr
 			}
 		}
 		return IdempotentOutcome{IdempotentResult: result, Replayed: true}, nil
 	}
 
-	result, err := handler(ctx)
+	result, err := runHandlerRecoveringPanics(ctx, scopedKey, deps.Store, handler)
 	if err != nil {
 		// Best-effort delete — matches the TS source's unconditional
 		// `await deps.db.deleteFrom(...)` (it does not itself guard
@@ -364,18 +406,18 @@ func WithIdempotencyKey(
 		// handler error only if the delete itself errors, mirroring
 		// that an unhandled TS promise rejection from the delete call
 		// would likewise propagate instead of the original error.
-		if delErr := deps.Store.Delete(ctx, key); delErr != nil {
+		if delErr := deps.Store.Delete(ctx, scopedKey); delErr != nil {
 			return IdempotentOutcome{}, delErr
 		}
 		return IdempotentOutcome{}, err
 	}
 
-	if err := deps.Store.Complete(ctx, key, result.Status, result.Body); err != nil {
+	if err := deps.Store.Complete(ctx, scopedKey, result.Status, result.Body); err != nil {
 		return IdempotentOutcome{}, err
 	}
 
 	if deps.Cache != nil {
-		if cacheErr := setCachedResult(ctx, deps.Cache, key, requestHash, result); cacheErr != nil {
+		if cacheErr := setCachedResult(ctx, deps.Cache, scopedKey, requestHash, result); cacheErr != nil {
 			return IdempotentOutcome{}, cacheErr
 		}
 	}
@@ -383,10 +425,52 @@ func WithIdempotencyKey(
 	return IdempotentOutcome{IdempotentResult: result, Replayed: false}, nil
 }
 
-func setCachedResult(ctx context.Context, cache IdempotencyCache, key string, requestHash string, result IdempotentResult) error {
+// runHandlerRecoveringPanics runs handler and guarantees scopedKey's
+// in_progress idempotency_keys row is deleted even if handler panics,
+// then re-panics with the original value so the panic still reaches
+// this process's own top-level recover middleware (router.go) for
+// logging/500-conversion exactly like any other handler panic.
+//
+// BUG FIX (backend review, 2026-07-10): WithIdempotencyKey previously
+// called handler(ctx) with no recover at all. Its only cleanup was the
+// `if err != nil { deps.Store.Delete(...) }` branch below a normal
+// error return — a panic (a nil pointer dereference three layers deep
+// in a PSP adapter, a slice out-of-range in response parsing, anything
+// unexpected) unwinds straight past that check without ever deleting
+// the row. Since idempotency_keys rows have no TTL and nothing else in
+// this package's flow revisits an in_progress row once pollTimeout
+// elapses, that key would be wedged in_progress permanently: every
+// future request — including the original caller's own legitimate
+// retry — would poll for up to pollTimeout and then receive
+// IdempotencyStillInProgressError forever, with no automatic recovery
+// path short of a human manually deleting the row from Postgres.
+func runHandlerRecoveringPanics(
+	ctx context.Context,
+	scopedKey string,
+	store IdempotencyStore,
+	handler func(ctx context.Context) (IdempotentResult, error),
+) (result IdempotentResult, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Best-effort, like the ordinary error path's delete below —
+			// if the delete itself fails there is genuinely nothing more
+			// useful this function can do without a logger dependency
+			// threaded through IdempotencyDeps (which does not carry one
+			// today); re-panicking with the ORIGINAL value either way
+			// keeps the real failure's type and message intact for
+			// whatever recovers it next; the store call is only mustered
+			// as a best-effort cleanup, not a replacement for the panic.
+			_ = store.Delete(ctx, scopedKey)
+			panic(r)
+		}
+	}()
+	return handler(ctx)
+}
+
+func setCachedResult(ctx context.Context, cache IdempotencyCache, scopedKey string, requestHash string, result IdempotentResult) error {
 	encoded, err := json.Marshal(cachedResult{RequestHash: requestHash, Result: result})
 	if err != nil {
 		return err
 	}
-	return cache.Set(ctx, cacheKeyFor(key), string(encoded), responseCacheTTL)
+	return cache.Set(ctx, cacheKeyFor(scopedKey), string(encoded), responseCacheTTL)
 }

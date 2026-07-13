@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -157,7 +158,23 @@ func zeroedStuckPaymentCounts(counts map[string]int) map[string]int {
 //
 // CRON WIRING: this is a plain, directly callable Go function — see
 // this package's top doc comment; nothing here assumes a scheduler.
-func RunNightlyInvariants(ctx context.Context, pool *pgxpool.Pool, metrics Metrics, input NightlyInvariantsInput) (NightlyInvariantsResult, error) {
+//
+// LOUD LOGGING (Stripe integration audit, 2026-07-12, Task #314). Before
+// this fix, both checks below were metrics-only: a negative net
+// reconciliation discrepancy (money paid out that was never captured —
+// never legitimate, always investigation-worthy) or a backlog of open
+// recon_exceptions rows only ever showed up as a Prometheus gauge value.
+// That is invisible unless someone is actively watching a dashboard or
+// has an alert RULE wired to that specific gauge — this codebase's
+// alert rules (internal/observability, T7.3) don't yet have one for
+// either signal, so in practice these conditions could persist
+// indefinitely with nobody ever finding out. The user's explicit
+// instruction for this pass was "just log it loudly for now (no
+// external integration)" — not a Slack webhook, not PagerDuty, just a
+// log line no operator watching this process's logs could miss. logger
+// may be nil (every call below is nil-checked), matching this package's
+// existing logSettlementFailure precedent in settlement.go.
+func RunNightlyInvariants(ctx context.Context, pool *pgxpool.Pool, metrics Metrics, logger *slog.Logger, input NightlyInvariantsInput) (NightlyInvariantsResult, error) {
 	byCurrency, err := computeNetReconciliationTotals(ctx, pool)
 	if err != nil {
 		return NightlyInvariantsResult{}, err
@@ -165,6 +182,17 @@ func RunNightlyInvariants(ctx context.Context, pool *pgxpool.Pool, metrics Metri
 	if metrics != nil {
 		for currency, totals := range byCurrency {
 			metrics.SetNetReconciliationDiscrepancy(currency, totals.netDiscrepancy())
+		}
+	}
+	for currency, totals := range byCurrency {
+		if discrepancy := totals.netDiscrepancy(); discrepancy < 0 && logger != nil {
+			logger.Error("RECONCILIATION INVARIANT VIOLATED: more paid out than ever captured net of refunds",
+				"currency", currency,
+				"discrepancy_minor_units", discrepancy,
+				"captured_minor_units", totals.CapturedMinor,
+				"refunded_minor_units", totals.RefundedMinor,
+				"paid_out_minor_units", totals.PaidOutMinor,
+			)
 		}
 	}
 
@@ -175,6 +203,16 @@ func RunNightlyInvariants(ctx context.Context, pool *pgxpool.Pool, metrics Metri
 	if metrics != nil {
 		for exceptionType, count := range openExceptions {
 			metrics.SetReconOpenExceptions(exceptionType, count)
+		}
+	}
+	if logger != nil {
+		for exceptionType, count := range openExceptions {
+			if count > 0 {
+				logger.Error("open reconciliation exceptions require attention",
+					"exception_type", exceptionType,
+					"open_count", count,
+				)
+			}
 		}
 	}
 

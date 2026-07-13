@@ -105,6 +105,20 @@ type CheckoutSessionsRouteDeps struct {
 	Cache         IdempotencyCache
 	Logger        *slog.Logger
 	Breaker       CircuitBreaker
+	// RateLimiter backs the per-client-IP rate limit
+	// registerPublicCheckoutSessionRoutes applies to BOTH public routes
+	// (see ratelimit.go's top doc comment for why this exists — POST
+	// .../confirm actually charges a card and is otherwise gated only by
+	// clientSecret possession). nil is handled explicitly (rate limiting
+	// is skipped, not a panic) so a caller/test that doesn't wire Redis
+	// still works, but cmd/api/main.go's real boot path always wires this
+	// — see that file's construction of CheckoutSessionsRouteDeps.
+	RateLimiter PublicRateLimiterStore
+	// RateLimitConfig: zero-value falls back to
+	// DefaultPublicCheckoutRateLimitConfig inside
+	// rateLimitPublicCheckoutRoute, so leaving this unset is the normal,
+	// supported case.
+	RateLimitConfig PublicCheckoutRateLimitConfig
 }
 
 // checkoutSessionTTL is how long a checkout session stays open before
@@ -220,8 +234,15 @@ func registerCheckoutSessionsRoutes(r chi.Router, deps CheckoutSessionsRouteDeps
 // other code changes required (CheckoutSessionsRouteDeps/the handlers
 // themselves are unaffected either way).
 func registerPublicCheckoutSessionRoutes(r chi.Router, deps CheckoutSessionsRouteDeps) {
-	r.Get("/checkout/{id}/public", handleGetPublicCheckoutSession(deps))
-	r.Post("/checkout/{id}/confirm", handleConfirmCheckoutSession(deps))
+	// Fixed 2026-07-10 (backend review): both routes are wrapped in the
+	// per-client-IP rate limit ratelimit.go defines — see
+	// CheckoutSessionsRouteDeps.RateLimiter's doc comment for the full
+	// rationale (POST .../confirm charges a real card and was otherwise
+	// unrate-limited, a card-testing/carding risk).
+	r.Get("/checkout/{id}/public", rateLimitPublicCheckoutRoute(
+		deps.RateLimiter, deps.RateLimitConfig, "get-public", handleGetPublicCheckoutSession(deps)))
+	r.Post("/checkout/{id}/confirm", rateLimitPublicCheckoutRoute(
+		deps.RateLimiter, deps.RateLimitConfig, "post-confirm", handleConfirmCheckoutSession(deps)))
 }
 
 func serializeCheckoutSession(s CheckoutSessionRow) CreateCheckoutSessionResponse {
@@ -410,15 +431,19 @@ func writeCheckoutSessionGone(w http.ResponseWriter) {
 // GET /checkout/{id}/public — NOT Bearer-authenticated (see
 // registerPublicCheckoutSessionRoutes's doc comment for exactly where
 // and why this is mounted outside the /v1 auth group). Authenticates
-// via ?clientSecret= (primary — a plain query param is the simplest
-// thing a browser fetch() call can send) or the
-// X-Checkout-Session-Secret header (secondary).
+// via the X-Checkout-Session-Secret header (primary, as of the Stripe
+// integration audit's Task #321e fix — the SDK now sends the secret
+// this way) or ?clientSecret= (secondary/legacy fallback, kept only
+// for backward compatibility with any SDK build still in the field
+// during rollout; a query-string secret leaks into server access
+// logs, browser history, and Referer headers, so no caller should
+// rely on this path going forward).
 func handleGetPublicCheckoutSession(deps CheckoutSessionsRouteDeps) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := chi.URLParam(r, "id")
-		clientSecret := r.URL.Query().Get("clientSecret")
+		clientSecret := r.Header.Get("X-Checkout-Session-Secret")
 		if clientSecret == "" {
-			clientSecret = r.Header.Get("X-Checkout-Session-Secret")
+			clientSecret = r.URL.Query().Get("clientSecret")
 		}
 
 		if deps.Store == nil || deps.Registry == nil {
@@ -533,6 +558,7 @@ func handleConfirmCheckoutSession(deps CheckoutSessionsRouteDeps) http.HandlerFu
 		outcome, err := WithIdempotencyKey(
 			r.Context(),
 			IdempotencyDeps{Store: deps.Idempotency, Cache: deps.Cache},
+			session.ProductID,
 			idemKey,
 			IdempotentRequestDescriptor{Method: r.Method, Path: r.URL.Path, Body: body},
 			func(ctx context.Context) (IdempotentResult, error) {

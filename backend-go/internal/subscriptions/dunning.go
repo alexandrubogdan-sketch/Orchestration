@@ -66,6 +66,46 @@ type DunningConfig struct {
 	// package's existing convention of validating at the API boundary,
 	// not deep in domain logic.
 	LadderHours []int
+
+	// MinSpacingSeconds is the merchant's configured retry_settings.min_spacing_seconds
+	// value (internal/api/retry_settings.go's RetrySettingsRow.MinSpacingSeconds),
+	// threaded all the way down to here.
+	//
+	// BUG FIX (backend review, 2026-07-10): before this field existed,
+	// MinSpacingSeconds was a completely dead, no-op configuration value
+	// for dunning retries — it was validated and persisted correctly at
+	// the API layer, but EvaluateDunningStep had nowhere to put it
+	// (DunningConfig had no field for it at all) and instead hardcoded
+	// `MinSpacing: 0` into the routing.RetryPolicyConfig it builds for
+	// routing.CanRetrySameInstrument. That alone wouldn't have mattered
+	// even if wired through correctly: CanRetrySameInstrument never reads
+	// config.MinSpacing in the first place (only
+	// routing.HasSufficientSpacing does, a sibling function that is never
+	// called from any production code path in this codebase — confirmed
+	// by a full-codebase grep). So a merchant could set
+	// minSpacingSeconds to any value via PUT /v1/retry-settings and it
+	// would have zero effect on when dunning retries actually get
+	// scheduled.
+	//
+	// Fixed here by giving MinSpacingSeconds a real, testable effect: it
+	// is now enforced as an absolute floor under the ladder-hour-derived
+	// delay in EvaluateDunningStep, so a dunning retry is never scheduled
+	// less than MinSpacingSeconds after "now," regardless of how small a
+	// merchant's dunning_ladder_hours entry is. In practice, with this
+	// field's own DefaultDunningConfig value (2s) and the shipped ladder
+	// (24h/72h/168h), the floor never binds — it only matters for a
+	// merchant who has configured an unusually short ladder step, which
+	// is exactly the safety-net role this value was always meant to
+	// play. It is deliberately NOT threaded into
+	// routing.RetryPolicyConfig.MinSpacing/HasSufficientSpacing: those
+	// exist to space out same-instrument PAYMENT retries within a single
+	// attempt sequence (Milestone 5, T5.4), a different concept from
+	// dunning's per-stage ladder delay, and reusing that plumbing here
+	// would still be a no-op today since nothing calls
+	// HasSufficientSpacing — fixing that separate dead path, if ever
+	// warranted, belongs to Milestone 5's own retry-policy package, not
+	// to this dunning-ladder one.
+	MinSpacingSeconds int
 }
 
 // DefaultDunningConfig returns a DunningConfig built from
@@ -73,9 +113,24 @@ type DunningConfig struct {
 // this package used implicitly before this parameter existed, and the
 // fallback internal/worker/tasks.go's real call site now uses
 // explicitly when a merchant entity has no retry_settings row yet.
+//
+// MinSpacingSeconds defaults to 2, mirroring
+// internal/api/retry_settings.go's DefaultMinSpacingSeconds constant —
+// the same default both layers have always documented, now actually
+// shared in effect rather than just in name.
 func DefaultDunningConfig() DunningConfig {
-	return DunningConfig{LadderHours: DunningLadderHours}
+	return DunningConfig{LadderHours: DunningLadderHours, MinSpacingSeconds: defaultMinSpacingSeconds}
 }
+
+// defaultMinSpacingSeconds mirrors internal/api/retry_settings.go's
+// DefaultMinSpacingSeconds. Duplicated as a small package-local const
+// rather than imported, since internal/api is an HTTP-handler-shaped
+// package this domain package has never depended on (see
+// internal/worker/helpers.go's loadDunningConfigForMerchant doc comment
+// for the same layering argument made about that call site) — a single
+// `= 2` constant is a far smaller price than adding that dependency
+// edge.
+const defaultMinSpacingSeconds = 2
 
 // DunningDecision mirrors DunningDecision exactly.
 type DunningDecision struct {
@@ -137,7 +192,19 @@ func EvaluateDunningStep(currentStage int, now time.Time, config DunningConfig) 
 
 	nextStage := currentStage + 1
 	delayHours := ladderHours[currentStage]
-	nextRetryAt := now.Add(time.Duration(delayHours) * time.Hour)
+	delay := time.Duration(delayHours) * time.Hour
+
+	// BUG FIX (backend review, 2026-07-10): enforce MinSpacingSeconds as
+	// an absolute floor under the ladder-hour delay — see this field's
+	// own doc comment on DunningConfig for the full history of why this
+	// was previously a dead, no-op value. now.Add(delay) below is never
+	// allowed to land less than MinSpacingSeconds after now, regardless
+	// of how small a merchant's configured ladder step is.
+	if minSpacing := time.Duration(config.MinSpacingSeconds) * time.Second; delay < minSpacing {
+		delay = minSpacing
+	}
+
+	nextRetryAt := now.Add(delay)
 	return DunningDecision{
 		Allowed:     true,
 		Reason:      fmt.Sprintf("stage %d of %d, next retry in %dh if this one also fails", nextStage, len(ladderHours), delayHours),

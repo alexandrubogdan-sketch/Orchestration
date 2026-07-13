@@ -88,6 +88,12 @@ func TestResolve_StripeModeMismatchErrors(t *testing.T) {
 
 // TestResolve_StripeValidCredentials_CachesAdapter verifies a
 // successful resolve caches the adapter instance per account id.
+//
+// SecretRef is deliberately "" (the default account) here — this test
+// predates the ref-scoped credential resolution fix (see
+// internal/adapters/refenv.go) and its own intent is caching behavior,
+// not ref resolution specifically; ref-scoped resolution itself is
+// covered by internal/adapters/stripe/credentials_test.go.
 func TestResolve_StripeValidCredentials_CachesAdapter(t *testing.T) {
 	r := New(Config{
 		Stripe: stripe.ConfigCredentials{
@@ -98,7 +104,7 @@ func TestResolve_StripeValidCredentials_CachesAdapter(t *testing.T) {
 			APIVersion:     "2026-06-24.dahlia",
 		},
 	}, nil)
-	account := PspAccount{ID: "acct_4", PSP: "stripe", Mode: "sandbox", SecretRef: "ref_1"}
+	account := PspAccount{ID: "acct_4", PSP: "stripe", Mode: "sandbox", SecretRef: ""}
 	first, err := r.Resolve(account)
 	if err != nil {
 		t.Fatalf("first Resolve returned an error: %v", err)

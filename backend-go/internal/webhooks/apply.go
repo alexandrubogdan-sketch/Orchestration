@@ -37,7 +37,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/alphapayments/payment-orchestrator/internal/domain"
 	"github.com/alphapayments/payment-orchestrator/internal/statemachine"
@@ -72,49 +71,36 @@ type PaymentNotFoundError = statemachine.PaymentNotFoundError
 // is returned to the caller, exactly matching the TS source's
 // `throw err` fallthrough.
 //
-// TRANSACTIONS-ROW TRANSACTION-BOUNDARY DECISION — read this before
-// touching this function. The TS source
+// TRANSACTIONS-ROW TRANSACTION-BOUNDARY — RESOLVED (backend review,
+// 2026-07-10). This section used to document a real, deliberately
+// deferred gap: the TS source
 // (src/workflow/tasks/applyEvents.ts's maybeRecordLedgerEntry) writes
 // the transactions ledger row in a SEPARATE, non-transactional DB call
 // made by the CALLER, AFTER transition()'s own transaction has already
-// committed — a real, documented weak-consistency gap in the TS source:
-// a crash between the state commit and the ledger write leaves e.g. a
-// `captured` payment with no `transactions` row.
+// committed, and this Go port originally preserved that same shape for
+// Phase 5 rather than rushing a fix — a crash between the state commit
+// and the ledger write could leave e.g. a `captured` payment with no
+// `transactions` row, and nothing would ever go back and create one.
+// The fix was deferred specifically because Milestone 6 (the ledger
+// package, internal/ledger) didn't exist yet, so there was no stable
+// shape to build a same-transaction callback against.
 //
-// DECISION FOR THIS GO PORT: preserve the TS source's separate-call
-// shape for THIS phase (Phase 5), rather than rushing a same-transaction
-// fix, but treat it as an explicitly flagged, deliberately deferred
-// TODO rather than a silently-accepted gap. Why not fix it now: doing
-// this correctly means either (a) threading a ledger-entry callback
-// into statemachine.Transition so it runs inside Transition's own
-// transaction before commit — which pulls a ledger-specific concern
-// into a package whose entire job is supposed to be the state machine
-// shell itself, and this phase has no ledger package yet (Milestone 6,
-// "ledger + reconciliation," is explicitly NOT ported this phase) to
-// design that callback's real shape against, or (b) having
-// ApplyCanonicalEvents open its OWN transaction spanning both
-// statemachine.Transition's call and the ledger insert — but
-// statemachine.Transition manages its own Begin/Commit internally
-// today and does not accept a caller-supplied transaction, so wrapping
-// it would either require changing that package's public API this late
-// in the phase, or defeat FOR UPDATE's row-lock scope by running the
-// ledger insert in a NEW transaction anyway. Both real fixes are one
-// phase away from being buildable on solid ground (once Milestone 6's
-// ledger package exists with a stable shape); rushing either one now,
-// against a moving target, risked a worse bug than the one being fixed.
-// See MIGRATION_NOTES.md's Phase 5 section, "transactions-row
-// transaction-boundary decision," for the full reasoning — this is
-// called out LOUDLY there specifically because Non-negotiable #10's
-// spirit argues for tightening this, and Phase 4's circuit-breaker
-// atomicity upgrade set a precedent of "improve on the TS source when
-// Go makes it easy" that this function does NOT follow, on purpose,
-// with the reasoning spelled out rather than left for a reader to
-// wonder about.
+// Milestone 6 has since shipped, so that blocker no longer applies.
+// maybeRecordLedgerEntry below is now passed to statemachine.Transition
+// as a statemachine.LedgerEntryWriter (see that type's doc comment) and
+// runs INSIDE Transition's own transaction, using the SAME tx handle
+// Transition already holds — not a second connection, not a second
+// transaction. If the ledger insert fails, Transition returns the error
+// before calling tx.Commit, so its deferred tx.Rollback(ctx) undoes the
+// state update and payment_events insert from the very same call too:
+// either the transition and its ledger entry both land, or neither
+// does. This is the exact fix Phase 5's doc comment predicted this
+// package would eventually make, now made.
 func ApplyCanonicalEvents(ctx context.Context, deps Deps, paymentID string, events []domain.CanonicalEvent, metricsPsp string) (*statemachine.PaymentRow, error) {
 	var latestPayment *statemachine.PaymentRow
 
 	for _, event := range events {
-		result, err := statemachine.Transition(ctx, deps.Pool, paymentID, event, deps.StableName)
+		result, err := statemachine.Transition(ctx, deps.Pool, paymentID, event, deps.StableName, maybeRecordLedgerEntry)
 		if err != nil {
 			var invalidErr *domain.InvalidTransitionError
 			if errors.As(err, &invalidErr) {
@@ -127,33 +113,33 @@ func ApplyCanonicalEvents(ctx context.Context, deps Deps, paymentID string, even
 		}
 		payment := result.Payment
 		latestPayment = &payment
-
-		if result.Outcome == "transitioned" {
-			if err := maybeRecordLedgerEntry(ctx, deps.Pool, result.Payment, result.To); err != nil {
-				return latestPayment, err
-			}
-		}
 	}
 
 	return latestPayment, nil
 }
 
-// maybeRecordLedgerEntry mirrors maybeRecordLedgerEntry exactly:
-// looks up ledgerTransactionType[toState]; no-op if absent. Otherwise
-// looks up the latest payment_attempts row for attempt_id/
-// psp_account_id; no-op if none exists (mirrors the TS
-// `if (!latestAttempt) return;` guard). Inserts into transactions with
-// payout_batch_id=NULL (Milestone 6 territory — unresolved until
+// maybeRecordLedgerEntry mirrors the TS maybeRecordLedgerEntry's own
+// logic exactly (looks up ledgerTransactionType[toState], no-op if
+// absent; looks up the latest payment_attempts row for attempt_id/
+// psp_account_id, no-op if none exists — mirrors the TS
+// `if (!latestAttempt) return;` guard; inserts into transactions with
+// payout_batch_id=NULL, Milestone 6 territory unresolved until
 // settlement data arrives, exactly as the TS source's own comment
-// explains).
-func maybeRecordLedgerEntry(ctx context.Context, pool *pgxpool.Pool, payment statemachine.PaymentRow, toState domain.PaymentState) error {
+// explains) but now runs against a statemachine.Querier (a live pgx.Tx
+// in production) instead of a *pgxpool.Pool, so its two calls
+// (QueryRow, Exec) execute inside the CALLER's transaction rather than
+// opening a new implicit one — see this file's now-resolved
+// "TRANSACTIONS-ROW TRANSACTION-BOUNDARY" doc comment above. Signature
+// matches statemachine.LedgerEntryWriter exactly so it can be passed
+// directly to statemachine.Transition with no adapter needed.
+func maybeRecordLedgerEntry(ctx context.Context, tx statemachine.Querier, payment statemachine.PaymentRow, toState domain.PaymentState) error {
 	transactionType, ok := ledgerTransactionType[toState]
 	if !ok {
 		return nil
 	}
 
 	var attemptID, pspAccountID string
-	err := pool.QueryRow(ctx,
+	err := tx.QueryRow(ctx,
 		`SELECT id, psp_account_id FROM payment_attempts
 		 WHERE payment_id = $1
 		 ORDER BY attempt_number DESC
@@ -172,7 +158,7 @@ func maybeRecordLedgerEntry(ctx context.Context, pool *pgxpool.Pool, payment sta
 		return fmt.Errorf("webhooks: generate transactions id: %w", err)
 	}
 
-	_, err = pool.Exec(ctx,
+	_, err = tx.Exec(ctx,
 		`INSERT INTO transactions (id, payment_id, attempt_id, type, amount_minor_units, currency, psp_account_id)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		id.String(), payment.ID, attemptID, transactionType, payment.AmountMinorUnits, payment.Currency, pspAccountID,
@@ -206,7 +192,12 @@ func Apply(ctx context.Context, deps Deps, inboxID string, paymentID string, eve
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("webhooks: webhook_inbox row %s not found for apply", inboxID)
 		}
-		return fmt.Errorf("webhooks: query webhook_inbox row %s: %w", inboxID, err)
+		// BUG FIX (Stripe integration audit, 2026-07-12): psp isn't known
+		// yet (this SELECT is what would have told us) — "unknown" is
+		// the best available metrics label here. See
+		// recordFailureAndWrapError's doc comment for why every
+		// bare-error return in this function now goes through it.
+		return recordFailureAndWrapError(ctx, deps, inboxID, "unknown", fmt.Errorf("webhooks: query webhook_inbox row %s: %w", inboxID, err))
 	}
 	if status == "processed" {
 		// Redelivery of an already-fully-applied event — no-op.
@@ -226,7 +217,16 @@ func Apply(ctx context.Context, deps Deps, inboxID string, paymentID string, eve
 			}
 			return applyErr
 		}
-		return applyErr
+		// BUG FIX (Stripe integration audit, 2026-07-12): this branch
+		// (any ApplyCanonicalEvents failure OTHER than
+		// PaymentNotFoundError — e.g. a DB error inside
+		// statemachine.Transition, or a ledger-insert failure) used to
+		// return applyErr bare, with webhook_inbox.attempts never
+		// incremented — leaving the row 'pending' forever regardless of
+		// how many times this exact failure recurred. Now goes through
+		// the same retry/DLQ bookkeeping as the PaymentNotFoundError
+		// branch above.
+		return recordFailureAndWrapError(ctx, deps, inboxID, psp, applyErr)
 	}
 
 	_, err = deps.Pool.Exec(ctx,
@@ -234,7 +234,7 @@ func Apply(ctx context.Context, deps Deps, inboxID string, paymentID string, eve
 		inboxID,
 	)
 	if err != nil {
-		return fmt.Errorf("webhooks: mark webhook_inbox %s processed: %w", inboxID, err)
+		return recordFailureAndWrapError(ctx, deps, inboxID, psp, fmt.Errorf("webhooks: mark webhook_inbox %s processed: %w", inboxID, err))
 	}
 	return nil
 }

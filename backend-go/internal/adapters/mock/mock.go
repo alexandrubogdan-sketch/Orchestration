@@ -22,11 +22,11 @@ package mock
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -517,8 +517,15 @@ func (a *Adapter) GetPayment(ctx context.Context, pspAttemptRef string) (adapter
 
 // VerifyWebhook implements adapters.PspAdapter.
 func (a *Adapter) VerifyWebhook(rawBody []byte, headers map[string][]string) (adapters.VerifiedEvent, error) {
-	provided := firstHeader(headers, "x-mock-signature")
-	if provided != a.signingSecret {
+	// Fixed 2026-07-10 (backend review): a plain `!=` string comparison
+	// leaks timing information proportional to the length of the
+	// matching prefix, letting an attacker recover the signing secret
+	// byte-by-byte via repeated requests. hmac.Equal runs in time
+	// dependent only on the (public) length of its two inputs, never on
+	// where they first differ — the standard fix for any secret/
+	// signature comparison, not just HMAC digests themselves.
+	provided := adapters.FirstHeader(headers, "x-mock-signature")
+	if !hmac.Equal([]byte(provided), []byte(a.signingSecret)) {
 		return adapters.VerifiedEvent{}, adapters.NewInvalidSignatureError("mock", "x-mock-signature header did not match")
 	}
 	var wire wireEnvelope
@@ -780,47 +787,14 @@ func asEnvelope(rawPayload any) (WebhookEnvelope, bool) {
 	}
 }
 
-// firstHeader looks up key case-insensitively and returns the first
-// value, or "" if absent.
-//
-// BUG FIX (backend audit, 2026-07-07): this used to be a bare
-// `headers[key]` map lookup against a lowercase literal (e.g.
-// "stripe-signature", "paypal-auth-algo", "x-mock-signature"). That
-// was correct against every existing unit test in this package
-// (which all hand-build `map[string][]string{"stripe-signature": ...}`
-// with lowercase keys directly) but WRONG against the actual
-// production call site: internal/api/webhooks.go passes `r.Header`
-// (Go's net/http.Header) straight through internal/webhooks.Ingest
-// into this method. net/http's server ALWAYS canonicalizes incoming
-// header keys via textproto.CanonicalMIMEHeaderKey before populating
-// r.Header — "stripe-signature" becomes "Stripe-Signature",
-// "paypal-auth-algo" becomes "Paypal-Auth-Algo", etc. A bare
-// case-sensitive map lookup with a lowercase literal therefore NEVER
-// matched a real incoming request's headers, meaning every genuine
-// webhook from every PSP would silently fail signature verification
-// (VerifyWebhook would read "" for every header, fail to verify, and
-// return *adapters.InvalidSignatureError) while every unit test still
-// passed, because the tests bypass net/http entirely and hand-build
-// already-lowercase maps. This is a fail-CLOSED bug (rejects real
-// webhooks rather than accepting forged ones -- no security
-// regression from this specific defect), but it is a complete
-// functional break of the webhook ingestion pipeline against real PSP
-// traffic. Fixed by scanning all keys with strings.EqualFold instead
-// of an exact map lookup, which is correct regardless of whether the
-// caller passes canonicalized net/http headers (real traffic) or
-// lowercase literals (every existing test) -- no test needed to
-// change.
-func firstHeader(headers map[string][]string, key string) string {
-	if headers == nil {
-		return ""
-	}
-	for k, values := range headers {
-		if strings.EqualFold(k, key) && len(values) > 0 {
-			return values[0]
-		}
-	}
-	return ""
-}
+// firstHeader used to live here as its own copy — DEDUPLICATION fix
+// (backend review, 2026-07-10): identical byte-for-byte to the copy
+// every other PSP adapter package (stripe, solidgate, paypal) also
+// carried. Hoisted into the shared internal/adapters package (already
+// imported by every adapter) as adapters.FirstHeader — see that
+// function's doc comment for the full history, including the original
+// 2026-07-07 case-insensitivity bug fix this preserves. The call site
+// above now calls adapters.FirstHeader directly.
 
 func parseTime(s string) (time.Time, error) {
 	return time.Parse(time.RFC3339Nano, s)

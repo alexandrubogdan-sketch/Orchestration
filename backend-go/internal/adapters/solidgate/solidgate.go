@@ -19,11 +19,11 @@ package solidgate
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/alphapayments/payment-orchestrator/internal/adapters"
@@ -108,7 +108,26 @@ func (a *Adapter) PublicConfig() adapters.PublicConfig {
 	}
 }
 
-func (a *Adapter) request(ctx context.Context, path string, body map[string]any) (*ChargeResponse, error) {
+// request issues one Solidgate API call. idempotencyKey is optional
+// (pass "" for read-only calls like /status): when non-empty it is sent
+// as X-Idempotency-Key, a best-effort, defense-in-depth measure only —
+// Solidgate's published API reference (api-docs.solidgate.com/api/
+// get-started, checked 2026-07-10) documents just two required
+// headers, `merchant` and `signature`, and no idempotency-key mechanism
+// of its own. Unlike Stripe (which has a first-class, documented
+// Idempotency-Key contract honored server-side via
+// params.SetIdempotencyKey), this Go port cannot honestly claim
+// Solidgate will dedupe retried /settle, /void, or /refund calls on
+// this header's account. The header is sent anyway (harmless if
+// Solidgate ignores an unrecognized header) so the caller-supplied
+// idempotencyKey parameter required by adapters.PspAdapter
+// (Non-negotiable #4) is genuinely forwarded rather than silently
+// discarded, but the actual, load-bearing idempotency guarantee for
+// this PSP remains this codebase's own internal/api WithIdempotencyKey
+// middleware + Postgres idempotency_keys table, which prevents a
+// retried caller request from ever reaching this method a second time
+// for the same logical operation in the first place.
+func (a *Adapter) request(ctx context.Context, path string, body map[string]any, idempotencyKey string) (*ChargeResponse, error) {
 	var jsonBytes []byte
 	var jsonString *string
 	method := http.MethodGet
@@ -137,6 +156,9 @@ func (a *Adapter) request(ctx context.Context, path string, body map[string]any)
 	req.Header.Set("content-type", "application/json")
 	req.Header.Set("merchant", headers.Merchant)
 	req.Header.Set("signature", headers.Signature)
+	if idempotencyKey != "" {
+		req.Header.Set("X-Idempotency-Key", idempotencyKey)
+	}
 
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
@@ -209,7 +231,7 @@ func (a *Adapter) CreatePayment(ctx context.Context, input adapters.CreatePaymen
 		body["scheme_transaction_id"] = *input.Context.NetworkTransactionID
 	}
 
-	response, err := a.request(ctx, "/charge", body)
+	response, err := a.request(ctx, "/charge", body, input.IdempotencyKey)
 	if err != nil {
 		return adapters.AttemptResult{}, err
 	}
@@ -222,12 +244,12 @@ func (a *Adapter) CreatePayment(ctx context.Context, input adapters.CreatePaymen
 // /resign//refund//void naming convention (all confirmed to exist via
 // their API-reference links in the original research session; /settle's
 // exact path was not independently fetched there).
-func (a *Adapter) Capture(ctx context.Context, pspAttemptRef string, amount *domain.Money, _ string) (adapters.AttemptResult, error) {
+func (a *Adapter) Capture(ctx context.Context, pspAttemptRef string, amount *domain.Money, idempotencyKey string) (adapters.AttemptResult, error) {
 	body := map[string]any{"order_id": pspAttemptRef}
 	if amount != nil {
 		body["amount"] = amount.MinorUnits()
 	}
-	response, err := a.request(ctx, "/settle", body)
+	response, err := a.request(ctx, "/settle", body, idempotencyKey)
 	if err != nil {
 		return adapters.AttemptResult{}, err
 	}
@@ -235,8 +257,8 @@ func (a *Adapter) Capture(ctx context.Context, pspAttemptRef string, amount *dom
 }
 
 // Void implements adapters.PspAdapter.
-func (a *Adapter) Void(ctx context.Context, pspAttemptRef string, _ string) (adapters.AttemptResult, error) {
-	response, err := a.request(ctx, "/void", map[string]any{"order_id": pspAttemptRef})
+func (a *Adapter) Void(ctx context.Context, pspAttemptRef string, idempotencyKey string) (adapters.AttemptResult, error) {
+	response, err := a.request(ctx, "/void", map[string]any{"order_id": pspAttemptRef}, idempotencyKey)
 	if err != nil {
 		return adapters.AttemptResult{}, err
 	}
@@ -244,11 +266,11 @@ func (a *Adapter) Void(ctx context.Context, pspAttemptRef string, _ string) (ada
 }
 
 // Refund implements adapters.PspAdapter.
-func (a *Adapter) Refund(ctx context.Context, pspAttemptRef string, amount domain.Money, _ string) (adapters.RefundResult, error) {
+func (a *Adapter) Refund(ctx context.Context, pspAttemptRef string, amount domain.Money, idempotencyKey string) (adapters.RefundResult, error) {
 	response, err := a.request(ctx, "/refund", map[string]any{
 		"order_id": pspAttemptRef,
 		"amount":   amount.MinorUnits(),
-	})
+	}, idempotencyKey)
 	if err != nil {
 		return adapters.RefundResult{}, err
 	}
@@ -275,7 +297,11 @@ func (a *Adapter) Refund(ctx context.Context, pspAttemptRef string, amount domai
 //
 // FLAGGED: /status path inferred, not independently confirmed.
 func (a *Adapter) GetPayment(ctx context.Context, pspAttemptRef string) (adapters.AttemptSnapshot, error) {
-	response, err := a.request(ctx, "/status", map[string]any{"order_id": pspAttemptRef})
+	// No idempotencyKey: GetPayment is a read, not one of the mutating
+	// calls Non-negotiable #4 requires an idempotency key for (see
+	// adapters.PspAdapter's doc comment) — matches the interface, which
+	// likewise gives GetPayment no idempotencyKey parameter.
+	response, err := a.request(ctx, "/status", map[string]any{"order_id": pspAttemptRef}, "")
 	if err != nil {
 		return adapters.AttemptSnapshot{}, err
 	}
@@ -295,18 +321,33 @@ func (a *Adapter) VerifyWebhook(rawBody []byte, headers map[string][]string) (ad
 			"no webhook credentials configured for this process (SOLIDGATE_WEBHOOK_PUBLIC_KEY/SOLIDGATE_WEBHOOK_SECRET_KEY)",
 		)
 	}
-	merchant := firstHeader(headers, "merchant")
-	signature := firstHeader(headers, "signature")
+	merchant := adapters.FirstHeader(headers, "merchant")
+	signature := adapters.FirstHeader(headers, "signature")
 	if merchant == "" || signature == "" {
 		return adapters.VerifiedEvent{}, adapters.NewInvalidSignatureError("solidgate", "missing merchant/signature headers")
 	}
-	if merchant != a.webhookCredentials.WebhookPublicKey {
+	// hmac.Equal rather than `!=`: the merchant header is not itself
+	// secret (it's the caller's own public key echoed back), but using
+	// the same constant-time helper consistently for every credential-
+	// adjacent comparison in this method avoids leaving a bare `!=` next
+	// to the signature check below for a future editor to copy-paste
+	// into a context where it would matter.
+	if !hmac.Equal([]byte(merchant), []byte(a.webhookCredentials.WebhookPublicKey)) {
 		return adapters.VerifiedEvent{}, adapters.NewInvalidSignatureError("solidgate", "merchant header does not match configured webhook public key")
 	}
 
+	// Fixed 2026-07-10 (backend review): `expected != signature` is a
+	// non-constant-time comparison — Go's `!=` on strings short-circuits
+	// at the first differing byte, so response latency leaks how many
+	// leading bytes of a forged signature happen to match, letting an
+	// attacker recover the correct signature (and forge webhook events)
+	// via a timing side-channel over enough attempts. hmac.Equal is
+	// exactly the standard-library primitive for this: its runtime
+	// depends only on the (public) byte length of its two arguments, not
+	// on where — or whether — they differ.
 	bodyString := string(rawBody)
 	expected := ComputeSignature(a.webhookCredentials.WebhookPublicKey, a.webhookCredentials.WebhookSecretKey, &bodyString)
-	if expected != signature {
+	if !hmac.Equal([]byte(expected), []byte(signature)) {
 		return adapters.VerifiedEvent{}, adapters.NewInvalidSignatureError("solidgate", "signature mismatch")
 	}
 
@@ -315,7 +356,7 @@ func (a *Adapter) VerifyWebhook(rawBody []byte, headers map[string][]string) (ad
 		return adapters.VerifiedEvent{}, adapters.NewInvalidSignatureError("solidgate", "invalid JSON body: "+err.Error())
 	}
 
-	providerEventID := firstHeader(headers, "solidgate-event-id")
+	providerEventID := adapters.FirstHeader(headers, "solidgate-event-id")
 	if providerEventID == "" {
 		providerEventID = parsed.Order.OrderID
 	}
@@ -440,44 +481,11 @@ func asChargeResponse(rawPayload any) (*ChargeResponse, bool) {
 	}
 }
 
-// firstHeader looks up key case-insensitively and returns the first
-// value, or "" if absent.
-//
-// BUG FIX (backend audit, 2026-07-07): this used to be a bare
-// `headers[key]` map lookup against a lowercase literal (e.g.
-// "stripe-signature", "paypal-auth-algo", "x-mock-signature"). That
-// was correct against every existing unit test in this package
-// (which all hand-build `map[string][]string{"stripe-signature": ...}`
-// with lowercase keys directly) but WRONG against the actual
-// production call site: internal/api/webhooks.go passes `r.Header`
-// (Go's net/http.Header) straight through internal/webhooks.Ingest
-// into this method. net/http's server ALWAYS canonicalizes incoming
-// header keys via textproto.CanonicalMIMEHeaderKey before populating
-// r.Header — "stripe-signature" becomes "Stripe-Signature",
-// "paypal-auth-algo" becomes "Paypal-Auth-Algo", etc. A bare
-// case-sensitive map lookup with a lowercase literal therefore NEVER
-// matched a real incoming request's headers, meaning every genuine
-// webhook from every PSP would silently fail signature verification
-// (VerifyWebhook would read "" for every header, fail to verify, and
-// return *adapters.InvalidSignatureError) while every unit test still
-// passed, because the tests bypass net/http entirely and hand-build
-// already-lowercase maps. This is a fail-CLOSED bug (rejects real
-// webhooks rather than accepting forged ones -- no security
-// regression from this specific defect), but it is a complete
-// functional break of the webhook ingestion pipeline against real PSP
-// traffic. Fixed by scanning all keys with strings.EqualFold instead
-// of an exact map lookup, which is correct regardless of whether the
-// caller passes canonicalized net/http headers (real traffic) or
-// lowercase literals (every existing test) -- no test needed to
-// change.
-func firstHeader(headers map[string][]string, key string) string {
-	if headers == nil {
-		return ""
-	}
-	for k, values := range headers {
-		if strings.EqualFold(k, key) && len(values) > 0 {
-			return values[0]
-		}
-	}
-	return ""
-}
+// firstHeader used to live here as its own copy — DEDUPLICATION fix
+// (backend review, 2026-07-10): identical byte-for-byte to the copy
+// every other PSP adapter package (stripe, paypal, mock) also carried.
+// Hoisted into the shared internal/adapters package (already imported
+// by every adapter) as adapters.FirstHeader — see that function's doc
+// comment for the full history, including the original 2026-07-07
+// case-insensitivity bug fix this preserves. Every call site above now
+// calls adapters.FirstHeader directly.
