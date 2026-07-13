@@ -317,6 +317,61 @@ export const THREE_DS_LABELS: Record<ThreeDsMode, string> = {
   frictionless: "Frictionless 3DS",
 };
 
+/** 2026-07-13: delay capture used to only accept a raw number of
+ *  seconds — fine for a quick test delay, unusable for a real capture
+ *  window (e.g. "settle 3 days after authorization" meant typing
+ *  259200). `delayUnit` lets the builder UI show/accept days, hours, or
+ *  minutes instead; `delaySeconds` (below, on WorkflowAction) stays the
+ *  single canonical stored value so every existing reader of
+ *  `action.delaySeconds` (node-card summaries, height calc, etc.)
+ *  keeps working unchanged — delayUnit only affects how the modal
+ *  displays/edits that value, never how it's stored. */
+export const DELAY_UNITS = ["minutes", "hours", "days"] as const;
+export type DelayUnit = (typeof DELAY_UNITS)[number];
+export const DELAY_UNIT_LABELS: Record<DelayUnit, string> = {
+  minutes: "Minutes",
+  hours: "Hours",
+  days: "Days",
+};
+export const DELAY_UNIT_SECONDS: Record<DelayUnit, number> = {
+  minutes: 60,
+  hours: 3600,
+  days: 86400,
+};
+
+/** Picks the largest unit that divides totalSeconds evenly, so a
+ *  saved delay (including older ones with no delayUnit recorded yet)
+ *  displays as a clean whole number instead of defaulting to whatever
+ *  unit happens to be listed first. Falls back to minutes — this
+ *  product's delay actions are always configured in whole minutes at
+ *  the very least (see defaultActionFor in lib/workflow-store.ts). */
+export function bestDelayUnitFor(totalSeconds: number): DelayUnit {
+  if (totalSeconds > 0 && totalSeconds % DELAY_UNIT_SECONDS.days === 0) return "days";
+  if (totalSeconds > 0 && totalSeconds % DELAY_UNIT_SECONDS.hours === 0) return "hours";
+  return "minutes";
+}
+
+/** Compact "1d 2h" / "45m" summary for the workflow-canvas node card
+ *  (components/workflow/nodes.tsx's actionSummary) — capped at two
+ *  units so it never overflows the card at large delays like "3d 4h
+ *  15m 30s" would. */
+export function formatDelayDuration(totalSeconds: number): string {
+  if (totalSeconds <= 0) return "0m";
+  const days = Math.floor(totalSeconds / DELAY_UNIT_SECONDS.days);
+  const afterDays = totalSeconds % DELAY_UNIT_SECONDS.days;
+  const hours = Math.floor(afterDays / DELAY_UNIT_SECONDS.hours);
+  const afterHours = afterDays % DELAY_UNIT_SECONDS.hours;
+  const minutes = Math.floor(afterHours / DELAY_UNIT_SECONDS.minutes);
+  const seconds = afterHours % DELAY_UNIT_SECONDS.minutes;
+
+  const parts: string[] = [];
+  if (days) parts.push(`${days}d`);
+  if (hours) parts.push(`${hours}h`);
+  if (minutes) parts.push(`${minutes}m`);
+  if (seconds && parts.length === 0) parts.push(`${seconds}s`);
+  return parts.slice(0, 2).join(" ") || "0m";
+}
+
 export interface WorkflowAction {
   type: WorkflowActionType;
   /** authorize_payment */
@@ -328,8 +383,11 @@ export interface WorkflowAction {
   metadataKey?: string;
   metadataValue?: string;
   metadataDestination?: "customer" | "payment" | "both";
-  /** delay */
+  /** delay — delaySeconds is the canonical stored value; delayUnit is
+   *  only the builder modal's last-used display unit (see this file's
+   *  DELAY_UNITS doc comment above). */
   delaySeconds?: number;
+  delayUnit?: DelayUnit;
 }
 
 export type WorkflowNodeKind = "trigger" | "condition" | "action" | "split";

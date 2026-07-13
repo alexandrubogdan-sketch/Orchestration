@@ -13,11 +13,16 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  bestDelayUnitFor,
+  DELAY_UNIT_LABELS,
+  DELAY_UNIT_SECONDS,
+  DELAY_UNITS,
   PROCESSOR_LABELS,
   PROCESSORS,
   THREE_DS_LABELS,
   THREE_DS_MODES,
   WORKFLOW_ACTION_LABELS,
+  type DelayUnit,
   type WorkflowAction,
 } from "@/lib/types";
 
@@ -40,6 +45,25 @@ export function ActionModal({
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState(action);
+
+  // Delay unit is UI-only state — see DELAY_UNITS's doc comment in
+  // lib/types.ts. Seeded from the action's last-used unit if it has
+  // one (re-opening this modal on an already-configured delay), or the
+  // best-fit unit for whatever raw seconds value it currently has
+  // (older/default delays that predate delayUnit existing at all).
+  const [delayUnit, setDelayUnitState] = useState<DelayUnit>(
+    action.delayUnit ?? bestDelayUnitFor(action.delaySeconds ?? 60),
+  );
+  const delayAmount = Math.round((draft.delaySeconds ?? 0) / DELAY_UNIT_SECONDS[delayUnit]);
+
+  function setDelay(amount: number, unit: DelayUnit): void {
+    setDelayUnitState(unit);
+    setDraft({
+      ...draft,
+      delaySeconds: Math.max(0, Math.round(amount)) * DELAY_UNIT_SECONDS[unit],
+      delayUnit: unit,
+    });
+  }
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -144,14 +168,29 @@ export function ActionModal({
 
         {action.type === "delay" ? (
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="action-delay">Delay (seconds)</Label>
-            <Input
-              id="action-delay"
-              type="number"
-              min={0}
-              value={draft.delaySeconds ?? 0}
-              onChange={(e) => setDraft({ ...draft, delaySeconds: Number(e.target.value) })}
-            />
+            <Label htmlFor="action-delay-amount">Delay</Label>
+            <div className="flex gap-2">
+              <Input
+                id="action-delay-amount"
+                type="number"
+                min={0}
+                value={delayAmount}
+                onChange={(e) => setDelay(Number(e.target.value), delayUnit)}
+                className="flex-1"
+              />
+              <Select
+                id="action-delay-unit"
+                value={delayUnit}
+                onChange={(e) => setDelay(delayAmount, e.target.value as DelayUnit)}
+                className="w-32"
+              >
+                {DELAY_UNITS.map((unit) => (
+                  <option key={unit} value={unit}>
+                    {DELAY_UNIT_LABELS[unit]}
+                  </option>
+                ))}
+              </Select>
+            </div>
           </div>
         ) : null}
 

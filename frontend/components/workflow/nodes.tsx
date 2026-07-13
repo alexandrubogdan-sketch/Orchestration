@@ -31,6 +31,7 @@ import { ConditionBlockModal } from "@/components/workflow/modals/condition-bloc
 import { SplitModal } from "@/components/workflow/modals/split-modal";
 import { useWorkflowStore, type NewNodeSeed } from "@/lib/workflow-store";
 import {
+  formatDelayDuration,
   PAYMENT_METHOD_LABELS,
   PROCESSOR_LABELS,
   THREE_DS_LABELS,
@@ -347,7 +348,7 @@ function actionSummary(action: WorkflowAction): string | null {
     case "set_metadata":
       return action.metadataKey ? `${action.metadataKey} = ${action.metadataValue || "—"}` : "No key set yet";
     case "delay":
-      return `${action.delaySeconds ?? 0}s`;
+      return formatDelayDuration(action.delaySeconds ?? 0);
     default:
       return null;
   }
