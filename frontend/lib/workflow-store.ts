@@ -415,7 +415,7 @@ export function defaultActionFor(type: WorkflowAction["type"]): WorkflowAction {
     case "set_metadata":
       return { type, metadataKey: "", metadataValue: "", metadataDestination: "payment" };
     case "delay":
-      return { type, delaySeconds: 60, delayUnit: "minutes" };
+      return { type, delaySeconds: 60 };
   }
 }
 

@@ -320,55 +320,59 @@ export const THREE_DS_LABELS: Record<ThreeDsMode, string> = {
 /** 2026-07-13: delay capture used to only accept a raw number of
  *  seconds — fine for a quick test delay, unusable for a real capture
  *  window (e.g. "settle 3 days after authorization" meant typing
- *  259200). `delayUnit` lets the builder UI show/accept days, hours, or
- *  minutes instead; `delaySeconds` (below, on WorkflowAction) stays the
- *  single canonical stored value so every existing reader of
+ *  259200). Revised same day per follow-up feedback: rather than
+ *  picking ONE unit from a dropdown, the builder modal shows Days /
+ *  Hours / Minutes as three fields at once, so a delay like "1 day, 12
+ *  hours" or "1 day, 30 minutes" is one edit, not a unit switch.
+ *  `delaySeconds` (on WorkflowAction, below) stays the single
+ *  canonical stored value — every existing reader of
  *  `action.delaySeconds` (node-card summaries, height calc, etc.)
- *  keeps working unchanged — delayUnit only affects how the modal
- *  displays/edits that value, never how it's stored. */
-export const DELAY_UNITS = ["minutes", "hours", "days"] as const;
-export type DelayUnit = (typeof DELAY_UNITS)[number];
-export const DELAY_UNIT_LABELS: Record<DelayUnit, string> = {
-  minutes: "Minutes",
-  hours: "Hours",
-  days: "Days",
-};
-export const DELAY_UNIT_SECONDS: Record<DelayUnit, number> = {
-  minutes: 60,
-  hours: 3600,
-  days: 86400,
-};
+ *  keeps working unchanged; these helpers only convert between that
+ *  value and the three-field UI. */
+const SECONDS_PER_MINUTE = 60;
+const SECONDS_PER_HOUR = 3600;
+const SECONDS_PER_DAY = 86400;
 
-/** Picks the largest unit that divides totalSeconds evenly, so a
- *  saved delay (including older ones with no delayUnit recorded yet)
- *  displays as a clean whole number instead of defaulting to whatever
- *  unit happens to be listed first. Falls back to minutes — this
- *  product's delay actions are always configured in whole minutes at
- *  the very least (see defaultActionFor in lib/workflow-store.ts). */
-export function bestDelayUnitFor(totalSeconds: number): DelayUnit {
-  if (totalSeconds > 0 && totalSeconds % DELAY_UNIT_SECONDS.days === 0) return "days";
-  if (totalSeconds > 0 && totalSeconds % DELAY_UNIT_SECONDS.hours === 0) return "hours";
-  return "minutes";
+export interface DelayComponents {
+  days: number;
+  hours: number;
+  minutes: number;
+}
+
+/** Splits a canonical delaySeconds value into whole days/hours/minutes
+ *  for the three-field modal. Seconds-level remainders (there
+ *  shouldn't be any — every write path below rounds to whole minutes)
+ *  are dropped rather than surfaced as a fourth field. */
+export function delaySecondsToComponents(totalSeconds: number): DelayComponents {
+  const clamped = Math.max(0, Math.floor(totalSeconds || 0));
+  const days = Math.floor(clamped / SECONDS_PER_DAY);
+  const afterDays = clamped % SECONDS_PER_DAY;
+  const hours = Math.floor(afterDays / SECONDS_PER_HOUR);
+  const minutes = Math.floor((afterDays % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE);
+  return { days, hours, minutes };
+}
+
+/** Inverse of delaySecondsToComponents — negative/non-numeric fields
+ *  (e.g. mid-edit while a user clears an input) are treated as 0
+ *  rather than throwing or propagating NaN into delaySeconds. */
+export function delayComponentsToSeconds(components: DelayComponents): number {
+  const days = Math.max(0, Math.floor(components.days) || 0);
+  const hours = Math.max(0, Math.floor(components.hours) || 0);
+  const minutes = Math.max(0, Math.floor(components.minutes) || 0);
+  return days * SECONDS_PER_DAY + hours * SECONDS_PER_HOUR + minutes * SECONDS_PER_MINUTE;
 }
 
 /** Compact "1d 2h" / "45m" summary for the workflow-canvas node card
  *  (components/workflow/nodes.tsx's actionSummary) — capped at two
  *  units so it never overflows the card at large delays like "3d 4h
- *  15m 30s" would. */
+ *  15m" would. */
 export function formatDelayDuration(totalSeconds: number): string {
   if (totalSeconds <= 0) return "0m";
-  const days = Math.floor(totalSeconds / DELAY_UNIT_SECONDS.days);
-  const afterDays = totalSeconds % DELAY_UNIT_SECONDS.days;
-  const hours = Math.floor(afterDays / DELAY_UNIT_SECONDS.hours);
-  const afterHours = afterDays % DELAY_UNIT_SECONDS.hours;
-  const minutes = Math.floor(afterHours / DELAY_UNIT_SECONDS.minutes);
-  const seconds = afterHours % DELAY_UNIT_SECONDS.minutes;
-
+  const { days, hours, minutes } = delaySecondsToComponents(totalSeconds);
   const parts: string[] = [];
   if (days) parts.push(`${days}d`);
   if (hours) parts.push(`${hours}h`);
   if (minutes) parts.push(`${minutes}m`);
-  if (seconds && parts.length === 0) parts.push(`${seconds}s`);
   return parts.slice(0, 2).join(" ") || "0m";
 }
 
@@ -383,11 +387,10 @@ export interface WorkflowAction {
   metadataKey?: string;
   metadataValue?: string;
   metadataDestination?: "customer" | "payment" | "both";
-  /** delay — delaySeconds is the canonical stored value; delayUnit is
-   *  only the builder modal's last-used display unit (see this file's
-   *  DELAY_UNITS doc comment above). */
+  /** delay — the canonical stored value; see delaySecondsToComponents/
+   *  delayComponentsToSeconds above for how the modal's three Days/
+   *  Hours/Minutes fields map onto this single number. */
   delaySeconds?: number;
-  delayUnit?: DelayUnit;
 }
 
 export type WorkflowNodeKind = "trigger" | "condition" | "action" | "split";

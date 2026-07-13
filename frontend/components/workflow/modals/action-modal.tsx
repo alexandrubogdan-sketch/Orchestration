@@ -13,16 +13,14 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  bestDelayUnitFor,
-  DELAY_UNIT_LABELS,
-  DELAY_UNIT_SECONDS,
-  DELAY_UNITS,
+  delayComponentsToSeconds,
+  delaySecondsToComponents,
   PROCESSOR_LABELS,
   PROCESSORS,
   THREE_DS_LABELS,
   THREE_DS_MODES,
   WORKFLOW_ACTION_LABELS,
-  type DelayUnit,
+  type DelayComponents,
   type WorkflowAction,
 } from "@/lib/types";
 
@@ -46,23 +44,19 @@ export function ActionModal({
 }) {
   const [draft, setDraft] = useState(action);
 
-  // Delay unit is UI-only state — see DELAY_UNITS's doc comment in
-  // lib/types.ts. Seeded from the action's last-used unit if it has
-  // one (re-opening this modal on an already-configured delay), or the
-  // best-fit unit for whatever raw seconds value it currently has
-  // (older/default delays that predate delayUnit existing at all).
-  const [delayUnit, setDelayUnitState] = useState<DelayUnit>(
-    action.delayUnit ?? bestDelayUnitFor(action.delaySeconds ?? 60),
+  // Days/Hours/Minutes are all editable at once (per user feedback —
+  // a single unit dropdown meant "1 day, 12 hours" needed a unit
+  // switch mid-edit). Seeded once from the action's current
+  // delaySeconds; every keystroke below recomputes delaySeconds from
+  // whichever field changed plus the other two's last-known values.
+  const [delayComponents, setDelayComponents] = useState<DelayComponents>(() =>
+    delaySecondsToComponents(action.delaySeconds ?? 60),
   );
-  const delayAmount = Math.round((draft.delaySeconds ?? 0) / DELAY_UNIT_SECONDS[delayUnit]);
 
-  function setDelay(amount: number, unit: DelayUnit): void {
-    setDelayUnitState(unit);
-    setDraft({
-      ...draft,
-      delaySeconds: Math.max(0, Math.round(amount)) * DELAY_UNIT_SECONDS[unit],
-      delayUnit: unit,
-    });
+  function updateDelay(patch: Partial<DelayComponents>): void {
+    const next = { ...delayComponents, ...patch };
+    setDelayComponents(next);
+    setDraft({ ...draft, delaySeconds: delayComponentsToSeconds(next) });
   }
 
   return (
@@ -168,28 +162,49 @@ export function ActionModal({
 
         {action.type === "delay" ? (
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="action-delay-amount">Delay</Label>
+            <Label>Delay</Label>
             <div className="flex gap-2">
-              <Input
-                id="action-delay-amount"
-                type="number"
-                min={0}
-                value={delayAmount}
-                onChange={(e) => setDelay(Number(e.target.value), delayUnit)}
-                className="flex-1"
-              />
-              <Select
-                id="action-delay-unit"
-                value={delayUnit}
-                onChange={(e) => setDelay(delayAmount, e.target.value as DelayUnit)}
-                className="w-32"
-              >
-                {DELAY_UNITS.map((unit) => (
-                  <option key={unit} value={unit}>
-                    {DELAY_UNIT_LABELS[unit]}
-                  </option>
-                ))}
-              </Select>
+              <div className="flex flex-1 flex-col gap-1">
+                <Input
+                  id="action-delay-days"
+                  type="number"
+                  min={0}
+                  value={delayComponents.days}
+                  onChange={(e) => updateDelay({ days: Number(e.target.value) })}
+                />
+                <Label htmlFor="action-delay-days" className="text-center text-xs font-normal text-muted-foreground">
+                  Days
+                </Label>
+              </div>
+              <div className="flex flex-1 flex-col gap-1">
+                <Input
+                  id="action-delay-hours"
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={delayComponents.hours}
+                  onChange={(e) => updateDelay({ hours: Number(e.target.value) })}
+                />
+                <Label htmlFor="action-delay-hours" className="text-center text-xs font-normal text-muted-foreground">
+                  Hours
+                </Label>
+              </div>
+              <div className="flex flex-1 flex-col gap-1">
+                <Input
+                  id="action-delay-minutes"
+                  type="number"
+                  min={0}
+                  max={59}
+                  value={delayComponents.minutes}
+                  onChange={(e) => updateDelay({ minutes: Number(e.target.value) })}
+                />
+                <Label
+                  htmlFor="action-delay-minutes"
+                  className="text-center text-xs font-normal text-muted-foreground"
+                >
+                  Minutes
+                </Label>
+              </div>
             </div>
           </div>
         ) : null}
