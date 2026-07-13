@@ -37,10 +37,16 @@ describe("CheckoutHttpClient.getPublicConfig", () => {
 
     const result = await client.getPublicConfig();
     expect(result).toEqual(publicConfig);
-    expect(fetchImpl).toHaveBeenCalledWith(
-      "https://api.example.com/checkout/cs_1/public?clientSecret=secret_1",
-      expect.objectContaining({ method: "GET" }),
-    );
+
+    // Stripe integration audit, Task #321e: the clientSecret must travel
+    // via the X-Checkout-Session-Secret header, never the URL query
+    // string (query strings leak into access logs, browser history, and
+    // Referer headers).
+    const [calledUrl, calledInit] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(calledUrl).toBe("https://api.example.com/checkout/cs_1/public");
+    expect(calledUrl).not.toContain("clientSecret");
+    expect(calledInit.method).toBe("GET");
+    expect(new Headers(calledInit.headers).get("X-Checkout-Session-Secret")).toBe("secret_1");
   });
 
   it("throws CheckoutSessionNotFoundError on 404", async () => {

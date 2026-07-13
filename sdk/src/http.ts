@@ -118,11 +118,25 @@ export class CheckoutHttpClient {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
+  /**
+   * Stripe integration audit (2026-07-12), Task #321e: the clientSecret
+   * is sent via the X-Checkout-Session-Secret header, not the URL query
+   * string. A query-string secret leaks into server access logs,
+   * browser history, and Referer headers on any subsequent navigation
+   * or subresource request off this page — a header does not. The
+   * backend (checkout_sessions.go's handleGetPublicCheckoutSession)
+   * checks this header first and only falls back to the legacy
+   * ?clientSecret= query param for backward compatibility with older
+   * SDK builds, so this is safe to roll out independently.
+   */
   async getPublicConfig(): Promise<CheckoutSessionPublic> {
-    const url = `${this.apiBaseUrl}/checkout/${encodeURIComponent(this.sessionId)}/public?clientSecret=${encodeURIComponent(this.clientSecret)}`;
+    const url = `${this.apiBaseUrl}/checkout/${encodeURIComponent(this.sessionId)}/public`;
     const response = await this.fetchImpl(url, {
       method: "GET",
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        "X-Checkout-Session-Secret": this.clientSecret,
+      },
     });
     await this.throwIfError(response);
     return (await response.json()) as CheckoutSessionPublic;

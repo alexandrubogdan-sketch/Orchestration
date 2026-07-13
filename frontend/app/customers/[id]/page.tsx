@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { PaymentStateBadge } from "@/components/status-badge";
 import { CustomerPayloadViewer } from "@/components/customers/customer-payload-viewer";
+import { BillingPortalButton } from "@/components/customers/billing-portal-button";
 import { getMockCustomerById, getMockPaymentsForCustomer } from "@/lib/mock-data";
 import { COUNTRIES } from "@/lib/countries";
 import { formatDate, formatDateTime, formatMoney } from "@/lib/utils";
@@ -85,8 +86,9 @@ export default async function CustomerDetailPage({
           </Card>
 
           <Card className="lg:col-span-2">
-            <CardHeader>
+            <CardHeader className="flex flex-row items-start justify-between gap-4">
               <CardTitle>Payment methods</CardTitle>
+              <BillingPortalButton customerId={customer.id} />
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
               {customer.paymentMethods.map((method) => (
