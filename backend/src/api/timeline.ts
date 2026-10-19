@@ -1,12 +1,3 @@
-/**
- * T4.3: "Timeline serializer: stable event names for products/
- * back-office." The stable-name vocabulary itself
- * (`TIMELINE_EVENT_NAMES`/`STABLE_NAME_BY_EVENT_TYPE`) now lives in
- * `src/domain/timelineEvents.ts` (Milestone 8, T8.4 — so
- * `src/domain/stateMachineDb.ts` can reuse it without an inverted
- * domain -> api dependency) and is re-exported here for backward
- * compatibility; this file keeps the actual serialization function.
- */
 export {
   TIMELINE_EVENT_NAMES,
   STABLE_NAME_BY_EVENT_TYPE,

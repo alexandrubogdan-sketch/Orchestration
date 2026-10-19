@@ -228,7 +228,7 @@ interface NormalizedDecline {
       <section className="mt-10">
         <h2 id="paypal-adapter" className="mb-3 text-lg font-semibold text-foreground">PayPal — an Orders API v2 adapter, not a card processor</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          The third adapter (<code className="font-mono">internal/adapters/paypal/</code>, Go-only — it
+          The third adapter (the PayPal adapter — it
           postdates the TypeScript backend) wraps PayPal&apos;s Orders API v2: create an order, capture it,
           void/refund/get by order or capture id. It differs from Stripe/Solidgate in three structural ways:
         </p>
@@ -265,7 +265,7 @@ interface NormalizedDecline {
           <code className="font-mono">declineReasonToCategory</code>/<code className="font-mono">
             declineReasonToRetryClass
           </code>{" "}
-          in <code className="font-mono">statusmapping.go</code>) rather than a DB-backed{" "}
+          in its status mapping) rather than a DB-backed{" "}
           <code className="font-mono">decline_code_map</code> lookup — an operator-configured{" "}
           <code className="font-mono">decline_code_map</code> row still takes priority if one exists, but
           PayPal&apos;s <code className="font-mono">status_details.reason</code> values are a small, fully

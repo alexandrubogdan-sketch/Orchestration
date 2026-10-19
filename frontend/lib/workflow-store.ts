@@ -17,11 +17,6 @@ function randomId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-/** The data a sidebar drag, an insert-handle pick, or a duplicate needs
- *  to create a brand-new node — everything except id/position, which
- *  the store/canvas assign. Matches the real client's `INode['data']`
- *  minus its config field (deliberately dropped on insert — see
- *  handleInsertNode's own doc comment there). */
 export type NewNodeSeed =
   | { kind: "condition" }
   | { kind: "split" }
@@ -29,45 +24,25 @@ export type NewNodeSeed =
 
 interface WorkflowStoreState {
   workflows: Workflow[];
-  /** Bumped per-workflow by requestRelayout — WorkflowCanvas watches this
-   *  to know when to discard manually-dragged node positions and re-run
-   *  the ELK auto-layout from scratch ("Rearrange" button). */
+
   relayoutRequests: Record<string, number>;
 
   createWorkflow: (paymentMethod: PaymentMethodType, name: string) => string;
   deleteWorkflow: (workflowId: string) => void;
   renameWorkflow: (workflowId: string, name: string) => void;
   togglePublish: (workflowId: string) => void;
-  /** Explicit draft/published set, for the toolbar's "Save as Draft" /
-   *  "Publish" buttons — separate from togglePublish so each button has
-   *  an unambiguous outcome regardless of current state. */
+
   setWorkflowState: (workflowId: string, state: WorkflowState) => void;
   requestRelayout: (workflowId: string) => void;
 
-  /** Inserts a brand-new node connected to `anchorNodeId` — either
-   *  hanging off a specific output handle (a condition block's or
-   *  split branch's own outgoing connector) or off a plain node's
-   *  single output. Mirrors the real client's hover "+" add-handle
-   *  (canvas-node/element/add-handle) rather than the old "always
-   *  append to the end of one linear chain" model. */
   insertNode: (workflowId: string, anchorNodeId: string, handleId: string | undefined, seed: NewNodeSeed) => void;
-  /** Sidebar-drag drop: adds a floating, unconnected node at a given
-   *  canvas position — same as the real client's onAdd/onDrop, which
-   *  also don't auto-wire an edge. */
+
   addFloatingNode: (workflowId: string, seed: NewNodeSeed) => string;
   duplicateNode: (workflowId: string, nodeId: string) => void;
   removeNode: (workflowId: string, nodeId: string) => void;
-  /** Deletes a single connection without touching either endpoint node —
-   *  the hover "×" on a connected edge (components/workflow/canvas-edge.tsx),
-   *  as opposed to removeNode's edge cleanup which only ever happens as a
-   *  side effect of deleting a whole node. */
+
   removeEdge: (workflowId: string, edgeId: string) => void;
-  /** Manually drawing a connection between two already-placed nodes
-   *  (React Flow's own drag-a-handle-to-a-handle gesture) — distinct
-   *  from insertNode, which always creates a brand-new node. Replaces
-   *  any existing edge already leaving this exact (source, sourceHandle)
-   *  pair, since each handle only ever represents one outgoing path
-   *  (matching the hover "+"'s own isConnected gating). */
+
   connectNodes: (workflowId: string, source: string, sourceHandle: string | undefined, target: string) => void;
 
   updateAction: (workflowId: string, nodeId: string, patch: Partial<WorkflowAction>) => void;
@@ -83,10 +58,7 @@ interface WorkflowStoreState {
 
   addSplitBranch: (workflowId: string, nodeId: string) => void;
   updateSplitBranch: (workflowId: string, nodeId: string, branchId: string, patch: Partial<WorkflowSplitBranch>) => void;
-  /** Rewrites every branch's percentage on a Split node in one shot —
-   *  used by the Split modal's "rebalance evenly" action and its
-   *  save button (which normalizes whatever the user typed back to a
-   *  100% total). */
+
   setSplitBranches: (workflowId: string, nodeId: string, branches: WorkflowSplitBranch[]) => void;
   removeSplitBranch: (workflowId: string, nodeId: string, branchId: string) => void;
 
@@ -233,8 +205,7 @@ export const useWorkflowStore = create<WorkflowStoreState>((set) => ({
         const newNodeId = randomId("node");
         const cloned: WorkflowNode = structuredClone(node);
         cloned.id = newNodeId;
-        // Fresh block/branch ids so the clone's handles don't collide
-        // with the original's edges.
+
         if (cloned.conditions) {
           cloned.conditions = cloned.conditions.map((block) => ({ ...block, id: randomId("block") }));
         }
@@ -250,10 +221,7 @@ export const useWorkflowStore = create<WorkflowStoreState>((set) => ({
     set((state) => ({
       workflows: mapWorkflows(state.workflows, workflowId, (w) => ({
         ...w,
-        // The trigger node (nodes[0]) can never be removed — every
-        // workflow starts from exactly one payment-method trigger,
-        // matching PayNext's "each trigger is tied to a payment method"
-        // rule (docs.paynext.com/guides/platform/workflows).
+
         nodes: w.nodes.filter((n, i) => i === 0 || n.id !== nodeId),
         edges: w.edges.filter((e) => e.source !== nodeId && e.target !== nodeId),
         updatedAt: new Date().toISOString(),
@@ -272,7 +240,7 @@ export const useWorkflowStore = create<WorkflowStoreState>((set) => ({
   connectNodes: (workflowId, source, sourceHandle, target) =>
     set((state) => ({
       workflows: mapWorkflows(state.workflows, workflowId, (w) => {
-        if (source === target) return w; // no self-loops
+        if (source === target) return w;
         const withoutStaleEdge = w.edges.filter(
           (e) => !(e.source === source && (e.sourceHandle ?? undefined) === (sourceHandle ?? undefined)),
         );
@@ -329,8 +297,7 @@ export const useWorkflowStore = create<WorkflowStoreState>((set) => ({
           ...n,
           conditions: n.conditions?.filter((block) => block.id !== blockId),
         }));
-        // A removed block's outgoing edge (keyed by sourceHandle ===
-        // blockId) is now dangling — drop it too.
+
         return { ...withoutBlock, edges: withoutBlock.edges.filter((e) => e.sourceHandle !== blockId) };
       }),
     })),
@@ -376,7 +343,7 @@ export const useWorkflowStore = create<WorkflowStoreState>((set) => ({
         const withoutBranch = mapNode(w, nodeId, (n) => {
           const remaining = (n.splits ?? []).filter((branch) => branch.id !== branchId);
           if (remaining.length === 0) return { ...n, splits: remaining };
-          // Rebalance evenly across whatever's left so the total stays 100.
+
           const evenShare = Math.floor(100 / remaining.length);
           const remainder = 100 - evenShare * remaining.length;
           return {

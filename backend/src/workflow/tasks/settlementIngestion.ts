@@ -3,22 +3,6 @@ import type { PspAdapterRegistry } from '../../adapters/registry.js';
 import { reconcileSettlements, upsertPayoutBatch } from '../../ledger/reconciliation.js';
 import type { TaskDefinition } from '../engine.js';
 
-/**
- * T6.2: "Stripe settlement ingestion: cron pulls balance transactions +
- * payouts, matches to captures/refunds." Runs per enabled `psp_account`
- * (not just Stripe — every adapter implements `listSettlements`/
- * `listPayouts`, mock included, so this cron exercises the exact same
- * path in tests as it will in production against a real PSP).
- *
- * `sinceHours` is a fixed look-back window rather than a persisted
- * high-water-mark cursor — simpler, and safe because
- * `reconcileSettlements`'s per-line dedupe key
- * (`pspAttemptRef:type:occurredAt`) plus the `payout_batches` upsert's
- * `ON CONFLICT` both make re-processing overlapping windows idempotent.
- * A persisted cursor per `psp_account` would cut down redundant API
- * calls but isn't needed for correctness — flagged as a future
- * optimization, not a bug.
- */
 export interface SettlementIngestionInput {
   sinceHours?: number;
 }

@@ -98,12 +98,29 @@ function serializePaymentMethod(pm: Selectable<PaymentMethodsTable>) {
   };
 }
 
+export class CustomerNotFoundError extends Error {
+  readonly statusCode = 404;
+  constructor(customerId: string) {
+    super(`Customer ${customerId} not found`);
+    this.name = 'CustomerNotFoundError';
+  }
+}
+
 async function resolveCustomerId(
   db: Db,
   merchantEntityId: string,
   input: { customerId?: string | undefined; customerEmail?: string | undefined },
 ): Promise<string> {
-  if (input.customerId) return input.customerId;
+  if (input.customerId) {
+    const owned = await db
+      .selectFrom('customers')
+      .select('id')
+      .where('id', '=', input.customerId)
+      .where('merchant_entity_id', '=', merchantEntityId)
+      .executeTakeFirst();
+    if (!owned) throw new CustomerNotFoundError(input.customerId);
+    return owned.id;
+  }
 
   const existing = await db
     .selectFrom('customers')
@@ -170,7 +187,7 @@ export function registerPaymentsRoutes(app: FastifyInstance, deps: PaymentsRoute
     },
     async (request, reply) => {
       const auth = request.auth!;
-      const idempotencyKey = requireIdempotencyKey(request.headers);
+      const idempotencyKey = requireIdempotencyKey(request.headers, request.auth!.productId);
       const parsed = createPaymentBodySchema.safeParse(request.body);
       if (!parsed.success) return sendValidationError(reply, parsed.error);
       const body = parsed.data;
@@ -182,10 +199,6 @@ export function registerPaymentsRoutes(app: FastifyInstance, deps: PaymentsRoute
         async (): Promise<IdempotentResult> => {
           const customerId = await resolveCustomerId(db, auth.merchantEntityId, body);
 
-          // Second idempotency layer — see
-          // db/migrations/..._payments-idempotency-key-unique.cjs's
-          // docblock for why this lookup exists on top of
-          // src/api/idempotency.ts's own caching.
           let payment = await db
             .selectFrom('payments')
             .selectAll()
@@ -200,10 +213,7 @@ export function registerPaymentsRoutes(app: FastifyInstance, deps: PaymentsRoute
                 productId: auth.productId,
                 currency: body.amount.currency,
                 citMit: body.citMit,
-                // Only 'card' is supported end-to-end today (see
-                // adapters/*'s PspCapabilities); routing_rules can
-                // still express a `paymentMethodType` match today for
-                // when a second method type lands, per docs/design.md §4.
+
                 paymentMethodType: 'card',
               },
             );
@@ -251,10 +261,6 @@ export function registerPaymentsRoutes(app: FastifyInstance, deps: PaymentsRoute
             );
             const pspIdempotencyKey = `${payment.id}-attempt-1`;
 
-            // Milestone 8/ADR-0011: Solidgate's /charge requires a
-            // customer email; Stripe/mock ignore this field entirely.
-            // Falls back to a DB lookup when the request identified the
-            // customer by customerId rather than customerEmail.
             const customerEmail =
               body.customerEmail ??
               (
@@ -266,12 +272,6 @@ export function registerPaymentsRoutes(app: FastifyInstance, deps: PaymentsRoute
               )?.email ??
               undefined;
 
-            // T5.3: the circuit breaker only ever hears about `technical`
-            // failures (adapter throws, or a technical-category decline)
-            // — never about business declines, which say nothing about
-            // whether the PSP itself is healthy. See
-            // src/routing/circuitBreaker.ts and
-            // src/domain/declines.ts#isEligibleForPspFailover.
             let result: AttemptResult;
             try {
               result = await adapter.createPayment({
@@ -284,9 +284,6 @@ export function registerPaymentsRoutes(app: FastifyInstance, deps: PaymentsRoute
                 customerEmail,
               });
             } catch (err) {
-              // T7.1: our OWN outbound throttle rejecting a call is not a
-              // signal the PSP is unhealthy — never let a self-imposed
-              // rate limit trip the circuit breaker.
               if (!(err instanceof RateLimitExceededError)) {
                 await breaker.recordFailure(pspAccount.id);
               }
@@ -335,7 +332,10 @@ export function registerPaymentsRoutes(app: FastifyInstance, deps: PaymentsRoute
         },
       );
 
-      return reply.status(outcome.status).send(outcome.body);
+      return reply
+        .status(outcome.status)
+        .header('idempotent-replayed', String(outcome.replayed))
+        .send(outcome.body);
     },
   );
 
@@ -393,9 +393,6 @@ export function registerPaymentsRoutes(app: FastifyInstance, deps: PaymentsRoute
         builder = builder.where('created_at', '<=', new Date(query.createdBefore));
       if (query.cursor) builder = builder.where('id', '<', query.cursor);
 
-      // UUIDv7 primary keys are time-sortable, so `id` doubles as a stable
-      // keyset-pagination cursor without a separate created_at+id
-      // composite key (SPEC.md's UUIDv7 convention, applied).
       const rows = await builder
         .orderBy('id', 'desc')
         .limit(query.limit + 1)
@@ -416,7 +413,7 @@ export function registerPaymentsRoutes(app: FastifyInstance, deps: PaymentsRoute
     async (request, reply) => {
       const auth = request.auth!;
       const { id } = request.params as { id: string };
-      const idempotencyKey = requireIdempotencyKey(request.headers);
+      const idempotencyKey = requireIdempotencyKey(request.headers, request.auth!.productId);
 
       const outcome = await withIdempotencyKey(
         { db, redis },
@@ -467,7 +464,10 @@ export function registerPaymentsRoutes(app: FastifyInstance, deps: PaymentsRoute
         },
       );
 
-      return reply.status(outcome.status).send(outcome.body);
+      return reply
+        .status(outcome.status)
+        .header('idempotent-replayed', String(outcome.replayed))
+        .send(outcome.body);
     },
   );
 
@@ -477,7 +477,7 @@ export function registerPaymentsRoutes(app: FastifyInstance, deps: PaymentsRoute
     async (request, reply) => {
       const auth = request.auth!;
       const { id } = request.params as { id: string };
-      const idempotencyKey = requireIdempotencyKey(request.headers);
+      const idempotencyKey = requireIdempotencyKey(request.headers, request.auth!.productId);
 
       const outcome = await withIdempotencyKey(
         { db, redis },
@@ -527,7 +527,10 @@ export function registerPaymentsRoutes(app: FastifyInstance, deps: PaymentsRoute
         },
       );
 
-      return reply.status(outcome.status).send(outcome.body);
+      return reply
+        .status(outcome.status)
+        .header('idempotent-replayed', String(outcome.replayed))
+        .send(outcome.body);
     },
   );
 
@@ -543,7 +546,7 @@ export function registerPaymentsRoutes(app: FastifyInstance, deps: PaymentsRoute
     async (request, reply) => {
       const auth = request.auth!;
       const { id } = request.params as { id: string };
-      const idempotencyKey = requireIdempotencyKey(request.headers);
+      const idempotencyKey = requireIdempotencyKey(request.headers, request.auth!.productId);
       const parsed = refundBodySchema.safeParse(request.body ?? {});
       if (!parsed.success) return sendValidationError(reply, parsed.error);
 
@@ -580,10 +583,6 @@ export function registerPaymentsRoutes(app: FastifyInstance, deps: PaymentsRoute
             .executeTakeFirstOrThrow();
           const adapter = registry.resolve(pspAccount);
 
-          // Partial refunds supported via the optional body amount;
-          // defaults to the full payment amount. Tracking *remaining*
-          // refundable balance across multiple partial refunds is
-          // Milestone 6 ledger territory — flagged, not guessed at, here.
           const refundAmount = parsed.data.amount
             ? makeMoney(parsed.data.amount.minorUnits, parsed.data.amount.currency)
             : makeMoney(Number(payment.amount_minor_units), payment.currency);
@@ -605,7 +604,10 @@ export function registerPaymentsRoutes(app: FastifyInstance, deps: PaymentsRoute
         },
       );
 
-      return reply.status(outcome.status).send(outcome.body);
+      return reply
+        .status(outcome.status)
+        .header('idempotent-replayed', String(outcome.replayed))
+        .send(outcome.body);
     },
   );
 }

@@ -6,15 +6,6 @@ import { RetryOutcomeBadge } from "@/components/status-badge";
 import type { RetryAttempt } from "@/lib/types";
 import { formatDateTime } from "@/lib/utils";
 
-/**
- * "Recent retry attempts" table — mock data from
- * lib/mock-data.ts#getMockRetryAttempts, rendered the same way
- * components/payments/payments-table.tsx renders its own rows (payment
- * id as a font-mono link to /payments/[id], a Badge-based outcome
- * column, formatDateTime for the timestamp) so this table reads as
- * "the same kind of table" as the rest of the app rather than a
- * one-off.
- */
 export function RetryAttemptsTable({ attempts }: { attempts: RetryAttempt[] }) {
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-surface">

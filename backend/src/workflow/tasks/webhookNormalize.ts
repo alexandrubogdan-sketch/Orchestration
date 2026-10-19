@@ -14,19 +14,6 @@ export interface WebhookApplyDispatch {
   events: CanonicalEvent[];
 }
 
-/**
- * T3.2: "Normalizer worker: inbox row -> adapter.normalizeEvent ->
- * dispatch Hatchet task keyed by payment_id with per-key concurrency 1
- * (serialize per payment, parallel across payments)."
- *
- * Deliberately split from the apply step (webhookApply.ts): normalizing
- * doesn't need the payment row locked, so keeping it a separate,
- * unserialized task means normalization for many different payments
- * proceeds fully in parallel — only the actual state-machine transition
- * (webhookApply) is serialized per payment_id, via
- * `concurrencyKey`/engine.ts's contract (the same mechanism T1.6's
- * outbox relay uses).
- */
 export function createWebhookNormalizeTask(deps: {
   db: Db;
   registry: PspAdapterRegistry;
@@ -47,11 +34,6 @@ export function createWebhookNormalizeTask(deps: {
         return;
       }
 
-      // Redelivery (Hatchet at-least-once, or an operator re-dispatching
-      // manually) of a row that's already past 'pending': a no-op, not
-      // an error — this is the dedup half of T3.6's "duplicate delivery
-      // -> one side effect" guarantee at the task level (the DB-level
-      // half is webhook_inbox's unique (psp, provider_event_id)).
       if (row.status !== 'pending') {
         ctx.logger.info('skipping non-pending inbox row', { inboxId: row.id, status: row.status });
         return;
@@ -92,8 +74,6 @@ export function createWebhookNormalizeTask(deps: {
       const events = adapter.normalizeEvent(row.raw_payload);
 
       if (events.length === 0) {
-        // A real event type we simply don't map to a canonical
-        // transition (e.g. an unrelated Stripe event) — not a failure.
         await deps.db
           .updateTable('webhook_inbox')
           .set({ status: 'processed', processed_at: new Date() })
@@ -116,10 +96,6 @@ export function createWebhookNormalizeTask(deps: {
       }
 
       if (!paymentId) {
-        // "Unknown-object" (T3.3): most likely a creation race — our
-        // own payment/attempt row hasn't been written yet when the
-        // webhook arrives. Park (leave status='pending') and retry with
-        // delay via Hatchet's backoff, up to MAX_WEBHOOK_ATTEMPTS.
         const decision = await recordFailureAndDecide(deps.db, row.id, row.psp);
         if (decision === 'dlq') {
           ctx.logger.error('unable to resolve payment_id after max attempts — moved to dlq', {

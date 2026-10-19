@@ -1,3 +1,4 @@
+import { purgePaymentHistory } from '../support/purgePaymentHistory.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import pg from 'pg';
 import { Redis } from 'ioredis';
@@ -11,20 +12,6 @@ import { PspAdapterRegistry, loadDeclineMaps } from '../../src/adapters/registry
 import { generateApiToken } from '../../src/api/auth.js';
 import type { TaskDefinition, WorkflowEngine } from '../../src/workflow/engine.js';
 
-/**
- * T7.6: "Security pass: ... authz tests." Specifically the case
- * src/api/auth.ts's own docblock flags as NOT covered by the
- * preHandler hook itself: "a product can only ever see/act on its own
- * data" is enforced by every route handler filtering its own queries
- * by `request.auth.productId` — this test is what actually exercises
- * that every route does it, not just the ones that happen to.
- *
- * Two isolation levels are tested:
- * - Product-level: two products under the SAME merchant entity.
- * - Entity-level: two products under DIFFERENT merchant entities
- *   (the stronger case — nothing about entity B should be visible to
- *   entity A's token at all).
- */
 class NoopEngine implements WorkflowEngine {
   registerTask<Input, Output>(_definition: TaskDefinition<Input, Output>): void {}
   async dispatch<Input>(_taskName: string, _input: Input): Promise<void> {}
@@ -124,7 +111,6 @@ describe('T7.6 authorization boundaries (real Postgres)', () => {
     pspAccountA = a.pspAccountId;
     tokenA = a.token;
 
-    // A second product under the SAME entity as A.
     const siblingProductId = uuidv7();
     await db
       .insertInto('products')
@@ -166,7 +152,6 @@ describe('T7.6 authorization boundaries (real Postgres)', () => {
     });
     await app.ready();
 
-    // Create one payment under product A via the real API.
     const createResponse = await app.inject({
       method: 'POST',
       url: '/v1/payments',
@@ -195,14 +180,18 @@ describe('T7.6 authorization boundaries (real Postgres)', () => {
         .execute();
       const paymentIds = payments.map((p) => p.id);
       if (paymentIds.length > 0) {
-        await db.deleteFrom('payment_events').where('payment_id', 'in', paymentIds).execute();
-        await db.deleteFrom('transactions').where('payment_id', 'in', paymentIds).execute();
+        await purgePaymentHistory(db, paymentIds);
         await db.deleteFrom('payment_attempts').where('payment_id', 'in', paymentIds).execute();
       }
       await db.deleteFrom('payments').where('product_id', '=', productId).execute();
+      await purgePaymentHistory(db, [], [productId]);
       await db.deleteFrom('api_tokens').where('product_id', '=', productId).execute();
       await db.deleteFrom('products').where('id', '=', productId).execute();
     }
+    await db
+      .deleteFrom('payment_methods')
+      .where('psp_account_id', 'in', [pspAccountA, pspAccountB])
+      .execute();
     await db.deleteFrom('psp_accounts').where('id', 'in', [pspAccountA, pspAccountB]).execute();
     await db
       .deleteFrom('customers')
@@ -293,5 +282,51 @@ describe('T7.6 authorization boundaries (real Postgres)', () => {
       headers: { authorization: `Bearer ${raw}` },
     });
     expect(response.statusCode).toBe(401);
+  });
+  async function createPayment(token: string, key: string, payload: Record<string, unknown>) {
+    return app.inject({
+      method: 'POST',
+      url: '/v1/payments',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        'idempotency-key': key,
+      },
+      payload,
+    });
+  }
+
+  it('the same Idempotency-Key used by two products creates two independent payments', async () => {
+    const key = `shared-${uuidv7()}`;
+    const payload = {
+      customerEmail: `shared-${uuidv7()}@example.com`,
+      amount: { minorUnits: 900, currency: 'USD' },
+      paymentMethodRef: `pm_${uuidv7()}`,
+    };
+    const first = await createPayment(tokenA, key, payload);
+    const second = await createPayment(tokenB, key, payload);
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(201);
+    expect(second.json<PaymentDto>().id).not.toBe(first.json<PaymentDto>().id);
+    expect(second.headers['idempotent-replayed']).toBe('false');
+    const replay = await createPayment(tokenA, key, payload);
+    expect(replay.headers['idempotent-replayed']).toBe('true');
+    expect(replay.json<PaymentDto>().id).toBe(first.json<PaymentDto>().id);
+  });
+
+  it("a product cannot create a payment against another merchant entity's customer", async () => {
+    const owned = await createPayment(tokenA, uuidv7(), {
+      customerEmail: `owned-${uuidv7()}@example.com`,
+      amount: { minorUnits: 700, currency: 'USD' },
+      paymentMethodRef: `pm_${uuidv7()}`,
+    });
+    const customerOfA = owned.json<{ customerId: string }>().customerId;
+
+    const hijack = await createPayment(tokenB, uuidv7(), {
+      customerId: customerOfA,
+      amount: { minorUnits: 700, currency: 'USD' },
+      paymentMethodRef: `pm_${uuidv7()}`,
+    });
+    expect(hijack.statusCode).toBe(404);
   });
 });

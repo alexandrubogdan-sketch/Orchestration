@@ -6,18 +6,6 @@ import { refreshWebhookHealthGauges } from '../../webhooks/inboxAttempts.js';
 import { applyCanonicalEvents } from './applyEvents.js';
 import type { TaskDefinition } from '../engine.js';
 
-/**
- * T3.5: "Gap-detection cron: payments in non-terminal states older than
- * threshold -> adapter.getPayment poll -> synthesize canonical events
- * if PSP state moved (webhook missed)."
- *
- * Scoped to the states where we're actively *waiting on the PSP* for an
- * async result — `authorized` (awaiting a deliberate manual capture)
- * and `dispute_opened` (awaiting weeks-long dispute resolution) are
- * deliberately excluded: sitting there a long time is normal for them,
- * not a sign of a missed webhook. Milestone 6's reconciliation job
- * covers `captured -> settled`, a different kind of staleness.
- */
 const POLLABLE_STATES: PaymentState[] = [
   'created',
   'requires_action',
@@ -43,9 +31,6 @@ function synthesizeEventsForStatus(snapshot: AttemptSnapshot): CanonicalEvent[] 
     case 'authorized':
       return [{ type: 'authorized' }];
     case 'captured':
-      // Over-inclusive on purpose (same reasoning as
-      // normalizeStripeEvent — see statusMapping.ts): late-event
-      // handling makes replaying already-applied steps harmless.
       return [{ type: 'authorized' }, { type: 'capture_started' }, { type: 'captured' }];
     case 'declined':
       return [{ type: 'declined', declineCode: snapshot.decline?.normalizedCode }];
@@ -69,9 +54,6 @@ export function createGapDetectionTask(deps: {
     name: 'payments.gap-detection',
     retries: 1,
     handler: async (input, ctx) => {
-      // T7.2/T7.3: piggybacks on this cron's existing 5-minute cadence
-      // to keep webhooks_inbox_backlog/webhooks_dlq_depth current — see
-      // refreshWebhookHealthGauges's docblock for why this lives here.
       await refreshWebhookHealthGauges(deps.db);
 
       const thresholdMinutes = input.thresholdMinutes ?? 15;

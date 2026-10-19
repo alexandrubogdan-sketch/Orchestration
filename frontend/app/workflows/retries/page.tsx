@@ -15,25 +15,6 @@ import { fetchLiveRetrySettings, putLiveRetrySettings } from "@/lib/live-api";
 import { toDunningLadderHours, useRetrySettingsStore } from "@/lib/retry-settings-store";
 import { getMockRetryAttempts } from "@/lib/mock-data";
 
-/**
- * Retries tab under Workflows — view/edit the dunning ladder + retry
- * policy that the real Go backend enforces via its `retry_settings`
- * table and GET/PUT /v1/retry-settings API
- * (payment-orchestrator-go/internal/api/retry_settings.go).
- *
- * Updated 2026-07-08: in Live mode this page now calls that real API
- * through this app's own /api/retry-settings proxy
- * (app/api/retry-settings/route.ts, lib/backend-proxy.ts) — GET on
- * mount to populate the ladder/policy shown, PUT from the "Save
- * policy" button — mirroring app/payments/page.tsx and
- * app/customers/page.tsx's established Live-mode pattern (environment
- * check, loading/ready/error state, an inline notice on failure rather
- * than a crash) exactly. Sandbox mode is untouched: it still only ever
- * reads/writes lib/retry-settings-store.ts's local Zustand state, never
- * a network call. This replaces the "NO REAL fetch() CALL HERE" comment
- * that used to live here — that described the whole app before the
- * Sandbox/Live toggle existed, and no longer describes this page.
- */
 export default function RetriesPage() {
   const environment = useEnvironmentStore((s) => s.environment);
   const policy = useRetrySettingsStore((s) => s.policy);
@@ -54,10 +35,6 @@ export default function RetriesPage() {
     if (environment !== "live") return;
     let cancelled = false;
 
-    // Deliberately no synchronous setLiveStatus("loading") here — same
-    // reasoning as the identical note in app/payments/page.tsx's own
-    // effect (avoids flashing back to a loading state on repeated
-    // Sandbox <-> Live toggles).
     fetchLiveRetrySettings()
       .then((dto) => {
         if (cancelled) return;

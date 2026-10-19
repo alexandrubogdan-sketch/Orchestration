@@ -2,29 +2,6 @@ import type Stripe from 'stripe';
 import { makeMoney } from '../../domain/money.js';
 import type { PayoutRecord, SettlementRecord } from '../types.js';
 
-/**
- * Milestone 6, T6.2. Stripe's `balance_transactions` are signed
- * (negative for money leaving the balance — refunds, fees charged
- * standalone, payouts) and reference their source object (a Charge,
- * Refund, or Payout) by id, not by PaymentIntent id directly — so
- * mapping back to `payment_attempts.psp_attempt_ref` (a PaymentIntent
- * id) requires the source to be expanded (`expand:
- * ['data.source']`, wired at the call site in index.ts) so
- * `source.payment_intent` is available without a second round-trip
- * per line.
- *
- * FLAGGED (per SPEC.md's working agreement — encode ambiguity, don't
- * guess silently): this mapping is written against Stripe's documented
- * `balance_transaction`/`charge`/`refund` object shapes, but there is
- * no live Stripe account reachable from this build environment to
- * verify the exact expanded-source shape against a real API response
- * (same limitation noted in docs/runbooks/stripe-sandbox-setup.md for
- * the rest of this adapter). `test/contract/golden/settlement/` fixtures
- * are hand-constructed from Stripe's public API reference, not
- * recorded from a live call — treat this function as the first thing
- * to re-verify against a real balance transaction export before this
- * adapter goes to production.
- */
 export function normalizeStripeBalanceTransaction(
   bt: Stripe.BalanceTransaction,
 ): SettlementRecord | undefined {
@@ -63,10 +40,6 @@ function mapBalanceTransactionType(
     case 'payout':
       return 'payout';
     default:
-      // Adjustments, transfers, topups, etc. — not a settlement line
-      // this orchestrator's reconciliation engine has a use for yet;
-      // deliberately dropped rather than mis-mapped (see docs/design.md's
-      // "encode ambiguity, don't guess" convention).
       return undefined;
   }
 }

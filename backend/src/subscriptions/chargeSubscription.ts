@@ -8,19 +8,6 @@ import { applyCanonicalEvents } from '../workflow/tasks/applyEvents.js';
 import type { Selectable } from 'kysely';
 import type { SubscriptionsTable } from '../db/types.js';
 
-/**
- * Shared "charge one subscription cycle" core, used by both the
- * renewal dispatcher (T8.1, a fresh period) and the dunning cron
- * (T8.2, a retry of an already-overdue period) — the actual PSP call
- * and bookkeeping (payment + payment_attempts + canonical events) is
- * identical either way; only what happens AFTER the result differs
- * (advance the period vs. progress/exhaust the dunning ladder), which
- * stays in each caller.
- *
- * Returns `undefined` if a payment already exists for `idempotencyKey`
- * (already billed/attempted — a no-op, not an error) so callers can
- * distinguish "nothing to do" from "just charged."
- */
 export interface ChargeSubscriptionResult {
   paymentId: string;
   result: AttemptResult;
@@ -30,25 +17,37 @@ export async function attemptSubscriptionCharge(
   deps: { db: Db; registry: PspAdapterRegistry },
   subscription: Selectable<SubscriptionsTable>,
   idempotencyKey: string,
-): Promise<ChargeSubscriptionResult | undefined> {
+): Promise<ChargeSubscriptionResult> {
   const existing = await deps.db
     .selectFrom('payments')
     .select('id')
     .where('idempotency_key', '=', idempotencyKey)
     .executeTakeFirst();
-  if (existing) return undefined;
 
-  const paymentMethod = await deps.db
-    .selectFrom('payment_methods')
-    .selectAll()
-    .where('id', '=', subscription.payment_method_id)
-    .executeTakeFirstOrThrow();
+  if (existing) {
+    const recorded = await deps.db
+      .selectFrom('payment_attempts')
+      .select(['psp_attempt_ref', 'status'])
+      .where('payment_id', '=', existing.id)
+      .where('attempt_number', '=', 1)
+      .executeTakeFirst();
+    if (recorded?.psp_attempt_ref) {
+      return {
+        paymentId: existing.id,
+        result: {
+          pspAttemptRef: recorded.psp_attempt_ref,
+          status: recorded.status as AttemptResult['status'],
+        },
+      };
+    }
+    return chargeAtPsp(deps, subscription, existing.id);
+  }
+
   const pspAccount = await deps.db
     .selectFrom('psp_accounts')
     .selectAll()
     .where('id', '=', subscription.psp_account_id)
     .executeTakeFirstOrThrow();
-  const adapter = deps.registry.resolve(pspAccount);
 
   const paymentId = uuidv7();
   await deps.db
@@ -72,7 +71,26 @@ export async function attemptSubscriptionCharge(
     })
     .execute();
 
-  // Milestone 8/ADR-0011: Solidgate's /charge requires a customer email.
+  return chargeAtPsp(deps, subscription, paymentId);
+}
+
+async function chargeAtPsp(
+  deps: { db: Db; registry: PspAdapterRegistry },
+  subscription: Selectable<SubscriptionsTable>,
+  paymentId: string,
+): Promise<ChargeSubscriptionResult> {
+  const paymentMethod = await deps.db
+    .selectFrom('payment_methods')
+    .selectAll()
+    .where('id', '=', subscription.payment_method_id)
+    .executeTakeFirstOrThrow();
+  const pspAccount = await deps.db
+    .selectFrom('psp_accounts')
+    .selectAll()
+    .where('id', '=', subscription.psp_account_id)
+    .executeTakeFirstOrThrow();
+  const adapter = deps.registry.resolve(pspAccount);
+
   const customer = await deps.db
     .selectFrom('customers')
     .select('email')

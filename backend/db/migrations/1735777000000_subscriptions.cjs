@@ -1,25 +1,3 @@
-/**
- * Milestone 8, T8.1: "Subscriptions + renewal dispatcher (MIT with
- * stored network_transaction_id)."
- *
- * A subscription bills a SPECIFIC `payment_method` (not just "the
- * customer's active card") and, implicitly, the `psp_account` that
- * instrument belongs to — Non-negotiable #9 requires every MIT attempt
- * to carry the `network_transaction_id` captured on the instrument's
- * original CIT attempt, and that continuity only holds if renewals
- * keep billing through the same PSP account the card was first
- * tokenized against. Re-routing a subscription to a different PSP
- * account (Milestone 5's routing_rules) is out of scope here — it
- * would require re-tokenizing the instrument, which is a customer-
- * facing card-migration flow, not something a renewal cron can do
- * silently. `docs/design.md` §11 (M8) flags this explicitly.
- *
- * `dunning_stage`/`dunning_next_retry_at` live on the subscription
- * itself rather than a separate table — T8.2's dunning ladder is a
- * property of one subscription's retry history, not an independent
- * entity with its own lifecycle.
- */
-
 exports.shorthands = undefined;
 
 exports.up = (pgm) => {

@@ -1,13 +1,6 @@
 import type { AppConfig } from '../../config/index.js';
 import type { PspAccountMode } from '../../db/types.js';
 
-/**
- * Mirrors src/adapters/stripe/credentials.ts's dev-only stand-in
- * pattern exactly — see that file's docblock for the full rationale
- * (production secret resolution is ADR-0003's deferred infra
- * decision; every caller goes through this one function, not
- * `process.env` directly).
- */
 export interface SolidgateCredentials {
   mode: PspAccountMode;
   publicKey: string;
@@ -41,7 +34,7 @@ export function resolveSolidgateCredentials(
     );
   }
 
-  void pspAccount.secretRef; // dev stand-in: same process-wide credentials regardless of the ref value — see stripe/credentials.ts
+  void pspAccount.secretRef;
 
   return {
     mode: config.solidgate.mode,

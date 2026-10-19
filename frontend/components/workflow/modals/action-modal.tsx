@@ -24,15 +24,6 @@ import {
   type WorkflowAction,
 } from "@/lib/types";
 
-/**
- * Configures a single Action node — opened from the node's own
- * popover "Configure" action, matching the real client's move of
- * action config into a modal instead of inline fields on the canvas
- * card (see action-node-content.component.tsx, which likewise only
- * renders extra content for authorize/delay/set-metadata and nothing
- * for capture/decline — mirrored below by settle_payment/block_payment
- * needing no fields at all).
- */
 export function ActionModal({
   action,
   onSave,
@@ -44,11 +35,6 @@ export function ActionModal({
 }) {
   const [draft, setDraft] = useState(action);
 
-  // Days/Hours/Minutes are all editable at once (per user feedback —
-  // a single unit dropdown meant "1 day, 12 hours" needed a unit
-  // switch mid-edit). Seeded once from the action's current
-  // delaySeconds; every keystroke below recomputes delaySeconds from
-  // whichever field changed plus the other two's last-known values.
   const [delayComponents, setDelayComponents] = useState<DelayComponents>(() =>
     delaySecondsToComponents(action.delaySeconds ?? 60),
   );

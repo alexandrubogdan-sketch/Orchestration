@@ -7,39 +7,6 @@ import { z } from "zod";
 import { callBackend } from "@/lib/mcp/backend-client";
 import { backendResult, MISSING_TOKEN_RESULT, runTool } from "@/lib/mcp/tool-helpers";
 
-/** Alpha Payments' MCP (Model Context Protocol) server — lets an MCP
- *  client (Claude, or any other MCP-speaking agent) research and act on
- *  a merchant's own payments data: list/inspect payments, capture/void/
- *  refund a payment, list/inspect subscriptions, cancel a subscription,
- *  and look up a customer's saved payment methods.
- *
- *  Transport: Streamable HTTP (the MCP spec's current recommended
- *  transport), stateless — no session tracking, one request in, one
- *  JSON-RPC response out, which is exactly the shape a Vercel
- *  serverless function wants. Built on Vercel's own `mcp-handler`
- *  package rather than wiring @modelcontextprotocol/sdk's
- *  StreamableHTTPServerTransport by hand: that transport's
- *  `handleRequest(req, res, body)` expects Node's raw
- *  IncomingMessage/ServerResponse, which a Next.js App Router Route
- *  Handler does not give you (it deals in Fetch API Request/Response
- *  instead) — mcp-handler is Vercel's own adapter that bridges exactly
- *  that gap, so this route needed no bespoke Node-http shim.
- *
- *  Auth: every tool call must carry a real Alpha Payments agent token
- *  (see app/agents/page.tsx and payment-orchestrator-go's
- *  internal/api/agent_tokens.go) as a Bearer token — verifyToken below
- *  only checks that a token is PRESENT, not that it's valid; real
- *  verification and scoping (which merchant/product it belongs to,
- *  read_only vs read_write) happens entirely on backend-go's side, the
- *  moment a tool forwards that token to a real /v1/* call
- *  (lib/mcp/backend-client.ts). A bad or read_only-on-a-mutating-call
- *  token surfaces as that same call's normal 401/403 problem+json body,
- *  not a special case here — this route deliberately does not
- *  duplicate any authorization decision backend-go already makes.
- *
- *  basePath is "/api" to match this file's own app/api/[transport]
- *  location, so the live endpoint is POST .../api/mcp. */
-
 const verifyToken = async (_req: Request, bearerToken?: string): Promise<AuthInfo | undefined> => {
   if (!bearerToken) return undefined;
   return { token: bearerToken, clientId: "alpha-payments-agent", scopes: [] };

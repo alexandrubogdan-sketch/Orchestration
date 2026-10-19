@@ -4,13 +4,6 @@ import { useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/**
- * Small inline copy-to-clipboard icon button — mirrors the id-display
- * pattern used for resource ids in tables (id shown truncated/muted, with
- * a copy affordance that appears on row hover). Falls back silently if
- * `navigator.clipboard` is unavailable (e.g. non-HTTPS/local dev edge
- * cases); this is a demo-data page, so there's no toast/analytics wiring.
- */
 export function CopyToClipboardButton({
   text,
   className,
@@ -22,13 +15,13 @@ export function CopyToClipboardButton({
 
   async function handleCopy(e: React.MouseEvent) {
     e.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1200);
-    } catch {
-      // Clipboard API unavailable — no-op.
-    }
+    const copiedOk = await navigator.clipboard.writeText(text).then(
+      () => true,
+      () => false,
+    );
+    if (!copiedOk) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
   }
 
   return (

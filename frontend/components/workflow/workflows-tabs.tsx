@@ -5,16 +5,6 @@ import { cn } from "@/lib/utils";
 
 export type WorkflowsTab = "workflows" | "lists";
 
-/**
- * Mirrors the real client's WorkflowsTabsComponent (module/workflows/
- * element/tab/workflows-tabs.component.tsx): a line-style tab pair
- * ("Workflows" / "Lists", each with a leading icon) that switches
- * which table renders below it, plus a trailing "Create" action tied
- * to whichever tab is active. This component only renders the tab
- * strip + icons; the Create button lives in the page itself so it can
- * stay wired to the existing CreateWorkflowDialog (Lists doesn't have
- * a real create flow yet — see lists-table.tsx's doc comment).
- */
 export function WorkflowsTabs({
   active,
   onChange,

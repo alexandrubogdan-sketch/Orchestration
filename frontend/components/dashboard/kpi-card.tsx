@@ -15,7 +15,7 @@ export function KpiCard({
   delta?: number;
   deltaLabel?: string;
   icon?: LucideIcon;
-  /** For metrics where a decrease is good (e.g. decline rate). */
+
   invertDelta?: boolean;
 }) {
   const isPositive = delta !== undefined ? (invertDelta ? delta < 0 : delta > 0) : null;

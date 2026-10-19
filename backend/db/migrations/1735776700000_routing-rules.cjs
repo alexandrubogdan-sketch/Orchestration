@@ -1,31 +1,3 @@
-/**
- * Milestone 5, T5.1: "routing_rules table, Redis-cached with
- * invalidation, audit trail."
- *
- * `product_id` is nullable: a NULL product_id means the rule applies to
- * every product under `merchant_entity_id` (an entity-wide default),
- * while a rule with a specific `product_id` only applies to that
- * product. The evaluator (src/routing/evaluator.ts) always looks at
- * both: product-specific rules AND entity-wide rules, ordered together
- * by `priority` (first-match-wins across the combined set, per T5.2).
- *
- * `match` is a jsonb bag of optional criteria (currency/citMit/payment
- * method type allow-lists) — an empty object means "matches anything,"
- * so a merchant can start with one wildcard rule per product and add
- * narrower higher-priority rules later without a schema change.
- *
- * `fallback_psp_account_id` is what the evaluator tries next, still
- * within the SAME rule, if the primary `psp_account_id`'s circuit
- * breaker (T5.3) is open — before falling through to the next
- * lower-priority rule entirely. Nullable: not every rule needs a
- * same-rule fallback.
- *
- * `routing_rules_audit` is append-only (mirrors `payment_events`/
- * `transactions`/`audit_log`'s pattern) — SPEC.md's "audit trail" for
- * T5.1 means every create/update/delete of a rule is a permanent,
- * unmodifiable record, not just whatever the current row looks like.
- */
-
 exports.shorthands = undefined;
 
 exports.up = (pgm) => {

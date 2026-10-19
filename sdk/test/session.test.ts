@@ -3,24 +3,6 @@ import { loadCheckout } from "../src/session";
 import { CardElement } from "../src/elements/card-element";
 import type { CardElementChangeState, Driver } from "../src/drivers/types";
 
-/**
- * These tests exercise CheckoutSession.confirm()'s state-machine logic
- * end-to-end against a hand-rolled fake Driver (NOT the real
- * mock-driver.ts — we want full control over tokenize()/confirmAction()
- * return values here, independent of Luhn/expiry validation) plus a
- * mocked fetch standing in for the backend's two public endpoints.
- *
- * CheckoutSession.create()/loadCheckout() picks a driver internally
- * based on publicConfig.psp, with no injection seam exposed publicly
- * (deliberately — merchants should never need to swap drivers by
- * hand). To drive the state machine under test, we load a real
- * session against a "mock" psp (so it doesn't try to load Stripe.js),
- * then monkeypatch the session's private `driver` field to our fake
- * before calling confirm() — confirm() only ever reads `this.driver`,
- * so this is enough to fully control tokenize()/confirmAction()
- * behavior without reimplementing CheckoutSession's internals here.
- */
-
 const PUBLIC_CONFIG_BODY = {
   id: "cs_1",
   amount: { minorUnits: 1000, currency: "usd" },
@@ -69,7 +51,10 @@ interface SessionInternals {
   driver: Driver;
 }
 
-async function createSessionWithFakeDriver(driver: FakeDriver, fetchImpl: typeof fetch) {
+async function createSessionWithFakeDriver(
+  driver: FakeDriver,
+  fetchImpl: typeof fetch,
+) {
   const session = await loadCheckout({
     apiBaseUrl: "https://api.example.com",
     sessionId: "cs_1",
@@ -106,7 +91,10 @@ describe("CheckoutSession.confirm", () => {
       );
 
     const driver = makeFakeDriver();
-    const { session, element } = await createSessionWithFakeDriver(driver, fetchImpl);
+    const { session, element } = await createSessionWithFakeDriver(
+      driver,
+      fetchImpl,
+    );
 
     const result = await session.confirm({ element });
     expect(result.status).toBe("succeeded");
@@ -132,7 +120,10 @@ describe("CheckoutSession.confirm", () => {
       );
 
     const driver = makeFakeDriver();
-    const { session, element } = await createSessionWithFakeDriver(driver, fetchImpl);
+    const { session, element } = await createSessionWithFakeDriver(
+      driver,
+      fetchImpl,
+    );
 
     const result = await session.confirm({ element });
     expect(result.status).toBe("error");
@@ -172,7 +163,10 @@ describe("CheckoutSession.confirm", () => {
 
     const driver = makeFakeDriver();
     const onBeforeAction = vi.fn();
-    const { session, element } = await createSessionWithFakeDriver(driver, fetchImpl);
+    const { session, element } = await createSessionWithFakeDriver(
+      driver,
+      fetchImpl,
+    );
 
     const result = await session.confirm({ element, onBeforeAction });
     expect(onBeforeAction).toHaveBeenCalledOnce();
@@ -181,29 +175,39 @@ describe("CheckoutSession.confirm", () => {
     if (result.status === "succeeded") {
       expect(result.payment.state).toBe("authorized");
     }
-    // Two confirm POSTs (initial + post-3DS re-confirm) plus one public GET.
+
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
   it("returns requires_action when the driver cannot drive the action", async () => {
-    fetchImpl.mockResolvedValueOnce(jsonResponse(200, PUBLIC_CONFIG_BODY)).mockResolvedValueOnce(
-      jsonResponse(200, {
-        id: "pay_1",
-        productId: "prod_1",
-        customerId: "cust_1",
-        amount: { minorUnits: 1000, currency: "usd" },
-        state: "requires_action",
-        citMit: "cit",
-        createdAt: "2026-07-07T00:00:00Z",
-        updatedAt: "2026-07-07T00:00:01Z",
-        clientSecret: "pi_123_secret_abc",
-      }),
-    );
+    fetchImpl
+      .mockResolvedValueOnce(jsonResponse(200, PUBLIC_CONFIG_BODY))
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          id: "pay_1",
+          productId: "prod_1",
+          customerId: "cust_1",
+          amount: { minorUnits: 1000, currency: "usd" },
+          state: "requires_action",
+          citMit: "cit",
+          createdAt: "2026-07-07T00:00:00Z",
+          updatedAt: "2026-07-07T00:00:01Z",
+          clientSecret: "pi_123_secret_abc",
+        }),
+      );
 
     const driver = makeFakeDriver({
-      confirmAction: vi.fn().mockResolvedValue({ success: false, error: "User cancelled the challenge." }),
+      confirmAction: vi
+        .fn()
+        .mockResolvedValue({
+          success: false,
+          error: "User cancelled the challenge.",
+        }),
     });
-    const { session, element } = await createSessionWithFakeDriver(driver, fetchImpl);
+    const { session, element } = await createSessionWithFakeDriver(
+      driver,
+      fetchImpl,
+    );
 
     const result = await session.confirm({ element });
     expect(result.status).toBe("error");
@@ -214,31 +218,41 @@ describe("CheckoutSession.confirm", () => {
   });
 
   it("returns requires_action when state is non-terminal with no pspClientSecret", async () => {
-    fetchImpl.mockResolvedValueOnce(jsonResponse(200, PUBLIC_CONFIG_BODY)).mockResolvedValueOnce(
-      jsonResponse(200, {
-        id: "pay_1",
-        productId: "prod_1",
-        customerId: "cust_1",
-        amount: { minorUnits: 1000, currency: "usd" },
-        state: "authorizing",
-        citMit: "cit",
-        createdAt: "2026-07-07T00:00:00Z",
-        updatedAt: "2026-07-07T00:00:01Z",
-      }),
-    );
+    fetchImpl
+      .mockResolvedValueOnce(jsonResponse(200, PUBLIC_CONFIG_BODY))
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
+          id: "pay_1",
+          productId: "prod_1",
+          customerId: "cust_1",
+          amount: { minorUnits: 1000, currency: "usd" },
+          state: "authorizing",
+          citMit: "cit",
+          createdAt: "2026-07-07T00:00:00Z",
+          updatedAt: "2026-07-07T00:00:01Z",
+        }),
+      );
 
     const driver = makeFakeDriver();
-    const { session, element } = await createSessionWithFakeDriver(driver, fetchImpl);
+    const { session, element } = await createSessionWithFakeDriver(
+      driver,
+      fetchImpl,
+    );
 
     const result = await session.confirm({ element });
     expect(result.status).toBe("requires_action");
   });
 
   it("returns a network-error result if the confirm request rejects", async () => {
-    fetchImpl.mockResolvedValueOnce(jsonResponse(200, PUBLIC_CONFIG_BODY)).mockRejectedValueOnce(new Error("network down"));
+    fetchImpl
+      .mockResolvedValueOnce(jsonResponse(200, PUBLIC_CONFIG_BODY))
+      .mockRejectedValueOnce(new Error("network down"));
 
     const driver = makeFakeDriver();
-    const { session, element } = await createSessionWithFakeDriver(driver, fetchImpl);
+    const { session, element } = await createSessionWithFakeDriver(
+      driver,
+      fetchImpl,
+    );
 
     const result = await session.confirm({ element });
     expect(result.status).toBe("error");
@@ -253,14 +267,17 @@ describe("CheckoutSession.confirm", () => {
     const driver = makeFakeDriver({
       tokenize: vi.fn().mockResolvedValue({ error: "Card number is invalid." }),
     });
-    const { session, element } = await createSessionWithFakeDriver(driver, fetchImpl);
+    const { session, element } = await createSessionWithFakeDriver(
+      driver,
+      fetchImpl,
+    );
 
     const result = await session.confirm({ element });
     expect(result.status).toBe("error");
     if (result.status === "error") {
       expect(result.error.code).toBe("tokenization_failed");
     }
-    // Only the initial public-config GET, no confirm POST.
+
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
@@ -281,7 +298,10 @@ describe("CheckoutSession.confirm", () => {
       );
 
     const driver = makeFakeDriver();
-    const { session, element } = await createSessionWithFakeDriver(driver, fetchImpl);
+    const { session, element } = await createSessionWithFakeDriver(
+      driver,
+      fetchImpl,
+    );
     session.registerActiveElement(element);
 
     const result = await session.confirm();

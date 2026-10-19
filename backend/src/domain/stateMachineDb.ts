@@ -10,7 +10,6 @@ import {
   type PaymentState,
 } from './stateMachine.js';
 
-/** Milestone 8, T8.4 — the shared outbox event_type every outbound-webhook-eligible domain event uses; see src/workflow/tasks/outboundWebhookDelivery.ts. */
 export const OUTBOUND_WEBHOOK_OUTBOX_EVENT_TYPE = 'outbound-webhook';
 
 export class PaymentNotFoundError extends Error {
@@ -27,25 +26,6 @@ export interface TransitionResult {
   to: PaymentState;
 }
 
-/**
- * The DB-effectful shell around the pure `applyTransition` (see
- * stateMachine.ts for the actual rules). This is where Non-negotiables
- * #2, #5, and #10 actually get enforced against Postgres:
- *
- * - `SELECT ... FOR UPDATE` serializes concurrent transitions on the
- *   same payment (Non-negotiable #2: Postgres, not app memory, is the
- *   source of truth for state).
- * - Every outcome — transitioned, late, or rejected — writes exactly
- *   one `payment_events` row in the same transaction as any
- *   `payments.state` update (Non-negotiable #10). Late and rejected
- *   outcomes write a timeline row too, just without changing state
- *   (Non-negotiable #5).
- * - Rejected (InvalidTransitionError) is recorded as an
- *   `invariant_violation` timeline row before the error is rethrown, so
- *   the failure is visible on the payment's own timeline, not just in
- *   logs — the caller (e.g. the M3 webhook apply worker) still sees the
- *   exception and decides how to alert/retry/DLQ.
- */
 export async function transition(
   db: Db,
   paymentId: string,
@@ -123,13 +103,6 @@ export async function transition(
       })
       .execute();
 
-    // Milestone 8, T8.4: only canonical events with a stable,
-    // product-facing name (STABLE_NAME_BY_EVENT_TYPE — the same
-    // vocabulary T4.3's timeline serializer uses) become an outbound
-    // webhook; `late_event`/`invariant_violation` never reach this
-    // branch at all (they return earlier), and an event with no stable
-    // name (there are none today, but the mapping is intentionally a
-    // Partial<>) is silently skipped rather than guessed at.
     const stableName = STABLE_NAME_BY_EVENT_TYPE[event.type];
     if (stableName) {
       await insertOutboxEvent(trx, {

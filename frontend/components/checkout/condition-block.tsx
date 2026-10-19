@@ -13,16 +13,6 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { ProcessorSplitEditor } from "./processor-split-editor";
 
-/**
- * One reorderable routing rule row under a card-like method's
- * conditions panel — collapsed view shows the condition summary +
- * edit/delete actions (mirroring the real client's
- * conditions-block.component.tsx), expand-in-place to edit the
- * country match + processor splits rather than opening a separate
- * modal (this app has no modal primitive equivalent to the real
- * client's CheckoutModalComponent yet, and inline editing keeps the
- * whole page usable without one).
- */
 export function ConditionBlockRow({
   block,
   index,

@@ -22,15 +22,6 @@ const METHOD_DESCRIPTIONS: Record<string, string> = {
   cash_app: "US-only wallet payments via Cash App — settles in USD. Not implemented yet, so this method is permanently disabled.",
 };
 
-/**
- * Conditions panel for the currently-selected method — mirrors the
- * real client's checkout-conditions.component.tsx: a Card with the
- * method name in the title, an enable/disable Switch (green when on),
- * a one-line description, then either a simple inline note (for
- * methods without processor routing) or the reorderable condition
- * blocks + "Add condition" + catch-all merchant-split UI (for `card`,
- * this app's only CHECKOUT_METHODS_WITH_PROCESSOR_ROUTING entry).
- */
 export function CheckoutConditions() {
   const method = useSelectedCheckoutMethod();
   const toggleMethodEnabled = useCheckoutStore((s) => s.toggleMethodEnabled);

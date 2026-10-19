@@ -1,12 +1,3 @@
-/**
- * Alpha Payments' brand mark: a dark rounded-square tile with a metallic
- * chevron ("A" without the crossbar). Kept as an inline SVG (not a raster
- * upload) so it stays crisp at any size and doesn't need an asset pipeline —
- * the gradient approximates the brushed-silver look from the brand sheet.
- * Background is intentionally fixed near-black in both app themes, matching
- * how most products keep their logo tile a constant brand color rather than
- * inverting it for dark mode.
- */
 export function LogoMark({ className }: { className?: string }) {
   return (
     <svg

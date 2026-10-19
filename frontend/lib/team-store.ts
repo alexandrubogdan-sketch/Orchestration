@@ -9,15 +9,12 @@ function randomId(prefix: string): string {
 interface TeamStoreState {
   members: TeamMember[];
   invites: TeamInvite[];
-  /** Mock-only: no email is actually sent — just appends a pending invite
-   *  locally, same convention as connect()/addIntegration() in
-   *  lib/integration-store.ts. Returns the new invite id. */
+
   inviteMember: (email: string, role: TeamRole) => string;
   updateMemberRole: (id: string, role: TeamRole) => void;
   removeMember: (id: string) => void;
   revokeInvite: (id: string) => void;
-  /** Resets invitedAt to now and status back to "pending" — mock stand-in
-   *  for re-sending the invite email. */
+
   resendInvite: (id: string) => void;
   reset: () => void;
 }

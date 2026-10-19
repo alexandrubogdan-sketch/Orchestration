@@ -3,28 +3,6 @@ import type { Db } from '../db/client.js';
 import type { PayoutRecord, SettlementRecord } from '../adapters/types.js';
 import type { ReconExceptionType } from '../db/types.js';
 
-/**
- * Milestone 6 — T6.1 (fee/payout linkage) + T6.2 (settlement matching)
- * + T6.3 (exceptions queue), all living together here since they're one
- * pipeline: normalized settlement lines in, matched against our own
- * `payment_attempts`/`transactions`, with every mismatch recorded as a
- * `recon_exceptions` row and every matched capture linked to its payout
- * batch.
- *
- * IMPORTANT — why payout linkage is a NEW transaction row, never an
- * UPDATE: `transactions` has had an append-only trigger since Milestone
- * 1 (Non-negotiable #6). A capture's `transactions` row is written
- * synchronously at capture time, long before we know which payout batch
- * it eventually lands in — that fact arrives later, from a completely
- * separate PSP export. Rather than requiring an UPDATE the trigger
- * would reject, a matched capture gets a SECOND, distinct
- * `type = 'payout'` row: "this capture's net proceeds were paid out in
- * batch X, net of fee Y" — a new fact, appended, not a correction of
- * the original row. `transactions.payout_batch_id` (T6.1's migration)
- * is only ever populated on these payout-type rows, never backfilled
- * onto the original capture/refund row.
- */
-
 export interface ReconcileSummary {
   matched: number;
   linked: number;
@@ -60,7 +38,6 @@ export async function upsertPayoutBatch(
   return row.id;
 }
 
-/** Looked up first; created as a status='pending', amount=0 placeholder if a settlement references a payout ref `listPayouts` hasn't surfaced yet. */
 async function resolvePayoutBatchId(
   db: Db,
   pspAccountId: string,
@@ -133,14 +110,6 @@ async function writeException(db: Db, input: WriteExceptionInput): Promise<void>
     .execute();
 }
 
-/**
- * T6.2/T6.3: matches every capture/refund settlement line against our
- * own records, writes `recon_exceptions` for anything that doesn't
- * line up, and links matched captures to their payout batch. Fee/payout
- * -type settlement lines aren't matched 1:1 against a `transactions`
- * row here (there's no single corresponding row to compare against) —
- * only capture and refund lines are.
- */
 export async function reconcileSettlements(
   db: Db,
   pspAccountId: string,

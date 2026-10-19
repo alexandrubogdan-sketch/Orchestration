@@ -2,10 +2,6 @@ import type { ReactNode } from "react";
 import { Plug } from "lucide-react";
 import type { ProcessorId } from "@/lib/types";
 
-/** Simplified PayPal "double P" mark in PayPal's two brand blues. Kept as
- *  a tiny inline SVG rather than pulling in an icon package — this is the
- *  first per-processor icon in the codebase, so it's intentionally minimal
- *  and self-contained rather than a general icon system. */
 function PayPalMark() {
   return (
     <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
@@ -21,10 +17,6 @@ function PayPalMark() {
   );
 }
 
-/** Per-processor icon overrides. Only PayPal has a distinct mark today —
- *  stripe/solidgate fall back to the generic Plug icon via PROCESSOR_ICONS
- *  not having an entry for them. Deliberately not retrofitting distinct
- *  icons for the other processors here; out of scope for this change. */
 export const PROCESSOR_ICONS: Partial<Record<ProcessorId, ReactNode>> = {
   paypal: <PayPalMark />,
 };

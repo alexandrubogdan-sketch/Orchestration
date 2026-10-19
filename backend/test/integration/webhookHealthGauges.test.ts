@@ -6,14 +6,6 @@ import { createDb, type Db } from '../../src/db/client.js';
 import { refreshWebhookHealthGauges } from '../../src/webhooks/inboxAttempts.js';
 import { webhookDlqDepth, webhookInboxBacklog } from '../../src/observability/metrics.js';
 
-/**
- * T7.2/T7.3 regression test: `webhooks_inbox_backlog` and
- * `webhooks_dlq_depth` were declared as far back as Milestone 0/3 but
- * nothing ever actually set them (a real gap found during the
- * hardening pass — see refreshWebhookHealthGauges's docblock). This
- * confirms the poll it now runs actually reflects real webhook_inbox
- * rows.
- */
 describe('refreshWebhookHealthGauges (real Postgres)', () => {
   let pool: pg.Pool;
   let db: Db;

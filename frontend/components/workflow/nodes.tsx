@@ -42,21 +42,6 @@ import {
   type WorkflowNode as WorkflowNodeType,
 } from "@/lib/types";
 
-/**
- * Node cards rebuilt to match the real client's canvas 1:1
- * (components/workflow/element/canvas/element/node in
- * AlphaPayments-client): a compact card — icon + title header, a "⋯"
- * popover for Configure/Duplicate/Delete — with config living behind
- * a modal instead of inline form fields, plus hover "+" handles
- * (AddHandleComponent) to insert the next node without leaving the
- * canvas. Condition and Split nodes render their branches as small
- * sub-blocks inside the same card, each with its own outgoing handle,
- * matching split-node-content.component.tsx / condition-node-content.
- * component.tsx exactly.
- *
- * Keep CARD_WIDTH/BLOCK_WIDTH in sync with lib/workflow-graph.ts,
- * which lays the graph out against these same numbers.
- */
 const CARD_WIDTH = 232;
 const BLOCK_WIDTH = 168;
 
@@ -398,11 +383,6 @@ export function ActionNodeView({ data, selected }: NodeProps<Node<WorkflowNodeDa
 
       {summary ? <div className="px-2.5 py-2 text-[11px] text-muted-foreground">{summary}</div> : null}
 
-      {/* Settle payment / Block payment are terminal — a workflow must
-          end somewhere, and these are the only two action types allowed
-          to be that ending (see lib/workflow-validation.ts). No source
-          Handle is rendered at all for them, not just a hidden "+", so
-          there's no way to drag out a new connection from one either. */}
       {action.type !== "settle_payment" && action.type !== "block_payment" ? (
         <AddHandleComponent
           type="source"

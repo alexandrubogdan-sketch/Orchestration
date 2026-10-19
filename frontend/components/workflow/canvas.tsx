@@ -27,59 +27,27 @@ import { Button } from "@/components/ui/button";
 import type { Workflow } from "@/lib/types";
 import type { NewNodeSeed } from "@/lib/workflow-store";
 
-// Defined once at module scope (not inline in the JSX below) — React
-// Flow re-runs internal setup whenever the nodeTypes/edgeTypes object
-// identity changes, so this must stay stable across renders.
 const EDGE_TYPES = { workflowEdge: CanvasEdgeView };
 
-/**
- * Two-pane canvas — a fixed-width node palette on the left
- * (CanvasSidebarComponent) plus the React Flow graph, with a
- * MiniMap and a maximize/minimize toggle in the top-right Panel next
- * to the "Rearrange" (auto-layout) button, matching the real client's
- * workflow-canvas.component.tsx chrome. Dropping a sidebar card onto
- * the canvas adds a floating, unconnected node at the drop position
- * (screenToFlowPosition), exactly like the real client's onDrop.
- */
 function WorkflowCanvasInner({ workflow }: { workflow: Workflow }) {
   const [nodes, setNodes, onNodesChangeInternal] = useNodesState<Node>([]);
   const [edges, setEdges] = useEdgesState<import("@xyflow/react").Edge>([]);
-  // Every node's last-known position, keyed by id — the single source
-  // of truth for "where does this node sit," seeded once by an ELK pass
-  // and otherwise left completely alone. Per explicit spec: only the
-  // "Rearrange" button may move existing nodes. Deleting a node,
-  // deleting an edge, editing a condition/action/branch, etc. must
-  // reuse whatever's already in here rather than re-running layout.
+
   const positionsRef = useRef<Map<string, { x: number; y: number }>>(new Map());
   const { fitView, screenToFlowPosition } = useReactFlow();
   const { theme } = useTheme();
   const [isMaximized, setIsMaximized] = useState(false);
   const addFloatingNode = useWorkflowStore((s) => s.addFloatingNode);
   const connectNodes = useWorkflowStore((s) => s.connectNodes);
-  // Tracks which workflow id we've already fit the view for, so ELK
-  // relayouts triggered by editing a node don't yank the user's pan/zoom —
-  // we only auto-fit the very first time a given workflow is laid out (or
-  // right after an explicit "Rearrange").
+
   const fitDoneForWorkflowRef = useRef<string | null>(null);
-  // Tracks which workflow id positionsRef currently holds ELK-seeded
-  // positions for — set back to something else (by "Rearrange") to
-  // force the next effect run through a full ELK pass again.
+
   const bootstrappedWorkflowIdRef = useRef<string | null>(null);
-  // Every runElkLayout() call stamps its own ticket here before awaiting
-  // elk — if a newer call starts before an older one resolves, the
-  // older one's result is discarded instead of clobbering a newer one.
+
   const layoutGenerationRef = useRef(0);
-  // Which connection the user clicked, if any — drives the downstream
-  // path highlight below. Cleared on pane click, re-click of the same
-  // edge, or (implicitly, since the lookup below just comes up empty)
-  // if the edge it pointed at no longer exists (deleted).
+
   const [focusedEdgeId, setFocusedEdgeId] = useState<string | null>(null);
 
-  // Everything reachable "moving down" from the clicked edge — its own
-  // source/target plus every node/edge you'd hit by following outgoing
-  // edges from there, branch after branch, all the way to whatever the
-  // path terminates in. Nothing above the clicked edge is included, per
-  // spec ("highlight the whole way moving down").
   const highlighted = useMemo(() => {
     const clicked = focusedEdgeId ? workflow.edges.find((e) => e.id === focusedEdgeId) : undefined;
     if (!clicked) return null;
@@ -100,11 +68,6 @@ function WorkflowCanvasInner({ workflow }: { workflow: Workflow }) {
     return { nodeIds, edgeIds };
   }, [focusedEdgeId, workflow.edges]);
 
-  // Full ELK auto-layout pass — the ONLY two things allowed to trigger
-  // this: the very first time a given workflow is opened (positionsRef
-  // has nothing for it yet) and an explicit "Rearrange" click. Every
-  // other store change goes through syncGraphWithoutLayout below
-  // instead, which never moves an existing node.
   const runElkLayout = useCallback(
     async (options?: { forceReset?: boolean }) => {
       const generation = ++layoutGenerationRef.current;
@@ -118,14 +81,10 @@ function WorkflowCanvasInner({ workflow }: { workflow: Workflow }) {
       try {
         built = await buildWorkflowGraph(workflow);
       } catch (error) {
-        // elk can in principle reject on a malformed/disconnected
-        // graph shape — surface it instead of silently doing nothing,
-        // which is what made "Rearrange" look like it "sometimes
-        // doesn't work."
         console.error("Workflow auto-layout failed:", error);
         return;
       }
-      if (generation !== layoutGenerationRef.current) return; // superseded by a newer call
+      if (generation !== layoutGenerationRef.current) return;
 
       positionsRef.current = new Map(built.nodes.map((node) => [node.id, node.position]));
       bootstrappedWorkflowIdRef.current = workflow.id;
@@ -140,14 +99,6 @@ function WorkflowCanvasInner({ workflow }: { workflow: Workflow }) {
     [workflow, setNodes, setEdges, fitView],
   );
 
-  // Lightweight sync — rebuilds the node/edge arrays straight from the
-  // workflow's current data with zero relayout: any node already in
-  // positionsRef keeps that exact spot; a brand-new node (no cached
-  // position yet — just inserted via a hover "+", duplicated, etc.)
-  // gets placed just below whatever node it's wired to, or stacked at a
-  // fallback spot if it isn't wired to anything yet. Dropping a card in
-  // from the sidebar is handled separately in onDrop below (it already
-  // knows its exact drop position).
   const syncGraphWithoutLayout = useCallback(() => {
     const validIds = new Set(workflow.nodes.map((n) => n.id));
     for (const id of Array.from(positionsRef.current.keys())) {
@@ -180,10 +131,6 @@ function WorkflowCanvasInner({ workflow }: { workflow: Workflow }) {
     }
   }, [workflow, runElkLayout, syncGraphWithoutLayout]);
 
-  // Dim everything except the focused connection's downstream path,
-  // rather than mutating the real nodes/edges state — that state is the
-  // ELK/sync source of truth and must stay untouched by a purely visual
-  // selection.
   const displayNodes = useMemo(() => {
     if (!highlighted) return nodes;
     return nodes.map((node) =>
@@ -237,19 +184,10 @@ function WorkflowCanvasInner({ workflow }: { workflow: Workflow }) {
             setNodes((current) => applyNodeChanges(changes, current));
           }}
           onConnect={(connection) => {
-            // Manually dragging a connection from one handle straight
-            // to another existing node's target handle — distinct from
-            // the hover "+" (which always creates a brand-new node).
-            // Without this, React Flow shows the drag line but drops it
-            // on release since nothing ever commits it to the store.
             if (!connection.source || !connection.target) return;
             connectNodes(workflow.id, connection.source, connection.sourceHandle ?? undefined, connection.target);
           }}
           onEdgeClick={(event, edge) => {
-            // Click a connection to trace it: highlights this edge plus
-            // every node/edge reachable downstream, dims the rest. Re-
-            // clicking the same connection (or clicking empty canvas,
-            // via onPaneClick below) clears it.
             event.stopPropagation();
             setFocusedEdgeId((current) => (current === edge.id ? null : edge.id));
           }}

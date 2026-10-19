@@ -12,6 +12,10 @@ export default function RetriesDocsPage() {
         description="The configurable dunning ladder and same-instrument retry policy, surfaced as a Retries tab under Workflows and backed by a real, DB-persisted Go API."
       />
 
+      <Callout tone="info" title="Availability" className="mb-10">
+        {"Retry settings are edited in the dashboard today. Saving them to the API arrives with the retry-settings endpoint; renewals and dunning already run on the API with the default ladder."}
+      </Callout>
+
       <section className="mb-10">
         <h2 id="two-different-retries" className="mb-3 text-lg font-semibold text-foreground">
           Two different things named &quot;retry&quot;
@@ -41,19 +45,9 @@ export default function RetriesDocsPage() {
       <section className="mb-10">
         <h2 id="now-configurable" className="mb-3 text-lg font-semibold text-foreground">Now configurable, not hardcoded</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          Both used to be hardcoded constants (<code className="font-mono">routing.DefaultRetryPolicy</code>,{" "}
-          <code className="font-mono">subscriptions.DunningLadderHours</code>). A real,
-          per-merchant-entity <code className="font-mono">retry_settings</code> table and{" "}
-          <code className="font-mono">GET</code>/<code className="font-mono">PUT /v1/retry-settings</code>{" "}
-          API (<code className="font-mono">payment-orchestrator-go/internal/api/retry_settings.go</code>)
-          now let a merchant override both. The old constants still exist — as the hardcoded fallback{" "}
-          <code className="font-mono">GET</code> returns for a merchant entity that has never called{" "}
-          <code className="font-mono">PUT</code>, not because the two are kept in sync by import; the Go
-          source&apos;s own comment flags this duplication as deliberate, since <code className="font-mono">
-            internal/api
-          </code>{" "}
-          intentionally doesn&apos;t depend on <code className="font-mono">internal/routing</code>/{" "}
-          <code className="font-mono">internal/subscriptions</code>.
+          Each merchant entity can override the in-payment retry policy and the dunning ladder through{" "}
+          <code className="font-mono">GET</code>/<code className="font-mono">PUT /v1/retry-settings</code>. Until an
+          entity saves its own settings, these defaults apply:
         </p>
         <CodeBlock label="Defaults (same numbers on both frontend and backend)">{`dunningLadderHours:    [24, 72, 168]   // 1, 3, and 7 days after a failed renewal
 maxAttemptsPerPayment: 3

@@ -2,24 +2,6 @@ import { toCssVariables, type Appearance } from "../appearance";
 import { isValidCvc, isValidExpiry, isValidLuhn } from "../validation";
 import type { CardElementChangeState } from "../drivers/types";
 
-/**
- * Shared DOM/CSS construction for the raw card-number/expiry/CVC
- * `<input>` fields used by BOTH the mock driver and the solidgate
- * driver. Stripe's driver does NOT use this — Stripe owns its own
- * iframe-hosted input DOM, so stripe-driver.ts only mirrors this
- * module's *shape* (grouping, labeling conventions), not its code.
- *
- * Card inputs are attached inside a `mode: "closed"` Shadow DOM by
- * the caller (see attachCardInputs below). Closed mode stops casual
- * `element.shadowRoot` access from the host page, but this is NOT
- * equivalent to Stripe's real cross-origin iframe isolation: any
- * script already running on the host page (e.g. an XSS payload, or a
- * malicious/compromised third-party script tag) can still read these
- * input values directly, because they execute in the same JS
- * realm/origin as the rest of the page. See README "Security model"
- * for the honest version of this caveat — do not oversell it.
- */
-
 export interface CardInputElements {
   root: HTMLElement;
   shadowRoot: ShadowRoot;
@@ -68,11 +50,6 @@ const STYLE_TEMPLATE = (appearance: Appearance | undefined): string => `
   }
 `;
 
-/**
- * Builds the card-input DOM inside a closed Shadow DOM attached to
- * `container`, and wires up basic input formatting (spacing digits in
- * the card number, "/" insertion in the expiry field).
- */
 export function attachCardInputs(
   container: HTMLElement,
   appearance: Appearance | undefined,
@@ -95,7 +72,7 @@ export function attachCardInputs(
   numberInput.inputMode = "numeric";
   numberInput.autocomplete = "cc-number";
   numberInput.placeholder = "Card number";
-  numberInput.maxLength = 23; // 19 digits + up to 4 spaces
+  numberInput.maxLength = 23;
   numberField.appendChild(numberInput);
 
   const expiryField = document.createElement("div");
@@ -150,11 +127,9 @@ function formatExpiry(value: string): string {
   return `${digits.slice(0, 2)}/${digits.slice(2)}`;
 }
 
-/**
- * Computes the current CardElementChangeState from the three raw
- * input values, using the shared pure validators.
- */
-export function computeChangeState(elements: CardInputElements): CardElementChangeState {
+export function computeChangeState(
+  elements: CardInputElements,
+): CardElementChangeState {
   const numberValue = elements.numberInput.value.trim();
   const expiryValue = elements.expiryInput.value.trim();
   const cvcValue = elements.cvcInput.value.trim();
@@ -165,8 +140,12 @@ export function computeChangeState(elements: CardInputElements): CardElementChan
   const expiryValid = isValidExpiry(expiryValue);
   const cvcValid = isValidCvc(cvcValue);
 
-  elements.numberInput.dataset.invalid = String(numberValue !== "" && !numberValid);
-  elements.expiryInput.dataset.invalid = String(expiryValue !== "" && !expiryValid);
+  elements.numberInput.dataset.invalid = String(
+    numberValue !== "" && !numberValid,
+  );
+  elements.expiryInput.dataset.invalid = String(
+    expiryValue !== "" && !expiryValid,
+  );
   elements.cvcInput.dataset.invalid = String(cvcValue !== "" && !cvcValid);
 
   if (empty) {
@@ -177,10 +156,18 @@ export function computeChangeState(elements: CardInputElements): CardElementChan
     return { complete: false, empty: false, error: "Card number is invalid." };
   }
   if (expiryValue !== "" && !expiryValid) {
-    return { complete: false, empty: false, error: "Expiry date is invalid or in the past." };
+    return {
+      complete: false,
+      empty: false,
+      error: "Expiry date is invalid or in the past.",
+    };
   }
   if (cvcValue !== "" && !cvcValid) {
-    return { complete: false, empty: false, error: "Security code is invalid." };
+    return {
+      complete: false,
+      empty: false,
+      error: "Security code is invalid.",
+    };
   }
 
   const complete = numberValid && expiryValid && cvcValid;

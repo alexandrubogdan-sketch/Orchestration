@@ -45,7 +45,7 @@ describe('outbound webhook signing — T8.4', () => {
     const body = JSON.stringify({ event: 'captured' });
     const originalTime = Date.now();
     const signature = signOutboundWebhook(secret, body, originalTime);
-    const muchLater = originalTime + 60 * 60_000; // 1 hour later
+    const muchLater = originalTime + 60 * 60_000;
     expect(() => verifyOutboundWebhookSignature(secret, body, signature, muchLater)).toThrow(
       InvalidWebhookSignatureError,
     );

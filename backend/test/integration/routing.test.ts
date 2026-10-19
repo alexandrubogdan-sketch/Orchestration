@@ -4,23 +4,11 @@ import { Redis } from 'ioredis';
 import { uuidv7 } from 'uuidv7';
 import { loadConfig, __resetConfigForTests } from '../../src/config/index.js';
 import { createDb, type Db } from '../../src/db/client.js';
-import { CircuitBreaker } from '../../src/routing/circuitBreaker.js';
+import { CircuitBreaker, redisBreakerStore } from '../../src/routing/circuitBreaker.js';
 import { createRule } from '../../src/routing/rulesRepo.js';
 import { evaluateRouting } from '../../src/routing/evaluator.js';
 import { NoRoutablePspAccountError } from '../../src/routing/types.js';
 
-/**
- * T5.5: "Tests: rule precedence; breaker opens/recovers." Real Postgres
- * + real Redis throughout (the working agreement's "never mock away
- * Postgres in integration tests," extended here to Redis since the
- * rules cache and circuit breaker are both genuinely Redis-backed, not
- * an implementation detail worth faking at this level — the pure
- * rule-matching/sorting logic already has dedicated unit tests in
- * test/unit/routingEvaluator.test.ts, and the breaker's state machine
- * has its own unit tests in test/unit/circuitBreaker.test.ts against an
- * in-memory fake; this file is specifically about the three wired
- * together).
- */
 describe('T5.5 routing evaluator + circuit breaker (real Postgres + Redis)', () => {
   let pool: pg.Pool;
   let db: Db;
@@ -38,15 +26,12 @@ describe('T5.5 routing evaluator + circuit breaker (real Postgres + Redis)', () 
     pool = new pg.Pool({ connectionString: config.database.url });
     db = createDb(pool);
     redis = new Redis(config.redis.url);
-    breaker = new CircuitBreaker(redis, {
+    breaker = new CircuitBreaker(redisBreakerStore(redis), {
       failureThreshold: 2,
       windowMs: 60_000,
       cooldownMs: 60_000,
     });
 
-    // Fresh merchant entity per test — sidesteps any Redis rule-cache
-    // cross-contamination between test cases without needing to flush
-    // the whole cache.
     merchantEntityId = uuidv7();
     await db
       .insertInto('merchant_entities')
@@ -177,7 +162,7 @@ describe('T5.5 routing evaluator + circuit breaker (real Postgres + Redis)', () 
     );
 
     await breaker.recordFailure(pspA);
-    await breaker.recordFailure(pspA); // threshold is 2 in this test's breaker config
+    await breaker.recordFailure(pspA);
     expect(await breaker.getState(pspA)).toBe('open');
 
     const decision = await evaluateRouting({ db, redis, breaker }, input());

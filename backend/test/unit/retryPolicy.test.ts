@@ -40,8 +40,6 @@ describe('canRetrySameInstrument — Non-negotiable #9', () => {
   });
 
   it('a hard decline is refused even with zero prior attempts and plenty of budget left', () => {
-    // Guards against a bug where the attempt-cap check runs first and
-    // masks the hard-decline check.
     const result = canRetrySameInstrument(decline('never'), 0, {
       maxAttemptsPerPayment: 100,
       minSpacingMs: 0,

@@ -1,3 +1,4 @@
+import { purgePaymentHistory } from '../support/purgePaymentHistory.js';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import pg from 'pg';
 import { Redis } from 'ioredis';
@@ -12,20 +13,6 @@ import { createWebhookApplyTask } from '../../src/workflow/tasks/webhookApply.js
 import { webhookSignatureInvalidTotal } from '../../src/observability/metrics.js';
 import type { TaskDefinition, WorkflowEngine } from '../../src/workflow/engine.js';
 
-/**
- * T3.6 chaos tests. Real Postgres throughout (Non-negotiable #2 / the
- * project's own working agreement: "never mock away Postgres in
- * integration tests"). The engine is a recording double — Hatchet
- * itself isn't exercised here (no live broker in this environment, see
- * the Milestone 0 summary), but every assertion is about what our own
- * code does with real rows, which doesn't depend on which workflow
- * engine eventually runs the dispatched task.
- *
- * The "burst of 1k events" scenario is scaled down to 50 payments here
- * for test runtime — this proves per-payment isolation and DB-level
- * concurrency safety (Non-negotiable #2's actual claim), not raw
- * throughput. True 1k+-scale load testing is T7.5's job.
- */
 class RecordingEngine implements WorkflowEngine {
   public dispatches: Array<{ taskName: string; input: unknown; key: string | undefined }> = [];
   private tasks = new Map<string, TaskDefinition<unknown, unknown>>();
@@ -133,8 +120,7 @@ describe('T3.6 webhook chaos tests (real Postgres)', () => {
       .execute();
     const paymentIds = ownedPayments.map((p) => p.id);
     if (paymentIds.length > 0) {
-      await db.deleteFrom('payment_events').where('payment_id', 'in', paymentIds).execute();
-      await db.deleteFrom('transactions').where('payment_id', 'in', paymentIds).execute();
+      await purgePaymentHistory(db, paymentIds);
       await db.deleteFrom('payment_attempts').where('payment_id', 'in', paymentIds).execute();
     }
     await db.deleteFrom('payments').where('merchant_entity_id', '=', merchantEntityId).execute();
@@ -261,8 +247,6 @@ describe('T3.6 webhook chaos tests (real Postgres)', () => {
       logger: { info: () => {}, error: () => {} },
     };
 
-    // Out-of-order first: 'captured' is not valid from 'authorizing',
-    // so this must be recorded as a late_event, not applied.
     const outOfOrderInboxId = await insertTestInboxRow(db, mockPspAccountId);
     await applyTask.handler(
       { inboxId: outOfOrderInboxId, paymentId, events: [{ type: 'captured' }] },
@@ -274,7 +258,7 @@ describe('T3.6 webhook chaos tests (real Postgres)', () => {
       .select('state')
       .where('id', '=', paymentId)
       .executeTakeFirstOrThrow();
-    expect(midState.state).toBe('authorizing'); // unchanged — Non-negotiable #5
+    expect(midState.state).toBe('authorizing');
 
     const lateEvents = await db
       .selectFrom('payment_events')
@@ -284,7 +268,6 @@ describe('T3.6 webhook chaos tests (real Postgres)', () => {
       .execute();
     expect(lateEvents.length).toBeGreaterThanOrEqual(1);
 
-    // Now the correct sequence arrives.
     const correctInboxId = await insertTestInboxRow(db, mockPspAccountId);
     await applyTask.handler(
       {
@@ -344,8 +327,6 @@ describe('T3.6 webhook chaos tests (real Postgres)', () => {
       expect(row.state).toBe('captured');
     }
 
-    // Each payment got exactly its own 3 events — no event leaked onto
-    // a different payment's timeline.
     for (const { paymentId } of payments.slice(0, 5)) {
       const events = await db
         .selectFrom('payment_events')

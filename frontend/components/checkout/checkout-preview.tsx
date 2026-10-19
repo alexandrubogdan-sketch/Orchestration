@@ -6,56 +6,13 @@ import { useCheckoutStore } from "@/lib/checkout-store";
 import { useEnvironmentStore } from "@/lib/environment-store";
 import { CHECKOUT_METHOD_LABELS, type CheckoutMethod } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-/**
- * Live preview column — mirrors the real client's
- * checkout-preview.component.tsx shape (a neutral-100 card with a
- * title, mounting a real embeddable checkout instance into a fixed
- * container id), genuinely wired to THIS repo's own
- * `@alphapayments/checkout-sdk` package (payment-orchestrator-sdk).
- *
- * Sandbox vs Live (sidebar toggle, lib/environment-store.ts):
- *
- * - Sandbox (default): the original, unchanged behavior. No real
- *   network call — `loadCheckout()`'s two HTTP round trips
- *   (GET .../public, POST .../confirm) go through an injectable
- *   in-memory `fetchImpl` (buildFakeFetch below) that answers both
- *   itself, using the SDK's "mock" PSP driver (real Luhn/expiry/CVC
- *   validation, fake tokens, zero network traffic). Wallet buttons
- *   (PayPal/Apple Pay/Google Pay) run a local setTimeout-based
- *   "processing -> succeeded" simulation — see simulateWalletPay.
- * - Live: creates a REAL checkout session (POST /api/checkout-sessions
- *   — this app's own server-side proxy, see lib/backend-proxy.ts,
- *   which holds the backend-go Bearer token so the browser never
- *   sees it), then loads the SDK against that real session with
- *   `apiBaseUrl` pointed at this app's own `/api` proxy routes (no
- *   fetchImpl override — genuinely goes over the network this time).
- *   Wallet buttons POST straight to /api/checkout/{id}/confirm with a
- *   clearly-labeled synthetic paymentMethodRef (see payWithWallet) —
- *   there's no real Apple Pay/Google Pay/PayPal JS SDK wired into this
- *   demo to produce a genuinely wallet-tokenized reference, but the
- *   backend call itself is 100% real, which is exactly what was
- *   broken before this toggle existed (every checkout method silently
- *   never reaching backend-go, regardless of which sidebar mode was
- *   selected — there was no Live mode at all).
- *
- * Until backend-go is actually deployed (see
- * payment-orchestrator-go/MIGRATION_NOTES.md — that module has never
- * been compiled, and Railway access to run it is still pending), Live
- * mode's own proxy routes return a 503 ("Live backend is not
- * configured") or a network error — surfaced here as a clear inline
- * error state, never silently downgraded to Sandbox's fake behavior.
- */
+import { problemMessage } from "@/lib/live-api";
 
 const MOCK_SESSION_ID = "cs_sandbox_preview";
 const MOCK_CLIENT_SECRET = "cs_secret_sandbox_preview";
 const MOCK_API_BASE_URL = "https://sandbox.internal.invalid";
 const PREVIEW_AMOUNT = { minorUnits: 4999, currency: "usd" };
-/** Live mode has no real merchant checkout flow feeding this preview
- *  column a real customer — this is the one synthetic identity Live
- *  mode's checkout-session creation call uses, clearly namespaced so
- *  it's obviously not a real customer if it ever shows up in a real
- *  Customers list. */
+
 const LIVE_PREVIEW_CUSTOMER_EMAIL = "checkout-preview@progresspartners.net";
 
 function buildFakeFetch(): typeof fetch {
@@ -77,11 +34,6 @@ function buildFakeFetch(): typeof fetch {
     }
 
     if (url.includes("/confirm")) {
-      // Simulate a successful confirmation on the first confirm() call
-      // per mount (matches the mock driver's own "no real challenge"
-      // behavior) — good enough for demoing the full quick-start flow
-      // end-to-end (card entry -> confirm -> succeeded) without a
-      // backend, without ever pretending a real charge occurred.
       consumed = true;
       const body = {
         id: MOCK_SESSION_ID,
@@ -100,14 +52,6 @@ function buildFakeFetch(): typeof fetch {
   };
 }
 
-/** POSTs to this app's own /api/checkout-sessions proxy (holds the
- *  backend-go Bearer token server-side) to create a REAL checkout
- *  session — the Live-mode analogue of buildFakeFetch's "/public"
- *  branch above, except this one actually creates a row in backend-go
- *  rather than fabricating a response. Throws with a readable message
- *  on any failure (503 not-configured, network error, backend 4xx/5xx)
- *  rather than returning something the caller might mistake for
- *  success. */
 async function createLiveCheckoutSession(): Promise<{ id: string; clientSecret: string }> {
   const response = await fetch("/api/checkout-sessions", {
     method: "POST",
@@ -119,14 +63,7 @@ async function createLiveCheckoutSession(): Promise<{ id: string; clientSecret: 
     }),
   });
   if (!response.ok) {
-    const detail = await response.text();
-    let message = detail;
-    try {
-      const parsed = JSON.parse(detail) as { title?: string; detail?: string };
-      message = [parsed.title, parsed.detail].filter(Boolean).join(" — ") || detail;
-    } catch {
-      // Not JSON — use the raw text as-is.
-    }
+    const message = problemMessage(await response.text());
     throw new Error(message || `Request failed with status ${response.status}`);
   }
   const data = (await response.json()) as { id: string; clientSecret: string };
@@ -164,11 +101,6 @@ export function CheckoutPreview() {
           apiBaseUrl: `${window.location.origin}/api`,
           sessionId: session.id,
           clientSecret: session.clientSecret,
-          // No fetchImpl override here — this is the whole point of
-          // Live mode: these two calls go over the real network, to
-          // this app's own /api/checkout/[id]/public and
-          // /api/checkout/[id]/confirm proxy routes, which forward to
-          // backend-go.
         });
       }
       return loadCheckout({
@@ -202,11 +134,6 @@ export function CheckoutPreview() {
     return () => {
       cancelled = true;
     };
-    // Re-runs whenever the sidebar's Sandbox/Live toggle flips, so
-    // switching modes tears down the old session/element and boots a
-    // fresh one against the newly-selected backend rather than
-    // continuing to drive a stale session created against the other
-    // mode.
   }, [environment]);
 
   const handlePay = async () => {
@@ -234,16 +161,6 @@ export function CheckoutPreview() {
     }, 900);
   };
 
-  /** Live-mode wallet tap: calls this app's real
-   *  /api/checkout/[id]/confirm proxy directly (not through the SDK —
-   *  CheckoutSession.confirm() is card-element-only; there's no real
-   *  Apple Pay/Google Pay/PayPal JS SDK wired into this demo to
-   *  produce a genuinely wallet-tokenized paymentMethodRef the way the
-   *  SDK's driver.tokenize() does for Card). The paymentMethodRef sent
-   *  is a clearly-labeled synthetic value — everything ELSE about this
-   *  call is real: it hits backend-go's actual
-   *  POST /checkout/{id}/confirm route, through the Bearer-token-free,
-   *  client-secret-authenticated path that route actually expects. */
   const payWithWallet = async (type: string) => {
     if (walletStatus[type] === "processing" || walletStatus[type] === "succeeded") return;
     const session = liveSessionRef.current;
@@ -477,9 +394,6 @@ function WalletButton({
   return null;
 }
 
-/** Minimal custom-drawn apple silhouette (not the official trademarked
- *  glyph) — good enough for a demo button, avoids embedding Apple's
- *  actual icon asset. */
 function AppleGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden="true">

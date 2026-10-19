@@ -1,10 +1,3 @@
-/**
- * Milestone 2 / ADR-0005: sandbox vs. production mode is a per-
- * psp_account property, not a process-wide flag — see the ADR for the
- * full rationale. `mode` defaults to 'sandbox' so existing rows (and
- * anyone inserting without thinking about it) land on the safe side.
- */
-
 exports.shorthands = undefined;
 
 exports.up = (pgm) => {

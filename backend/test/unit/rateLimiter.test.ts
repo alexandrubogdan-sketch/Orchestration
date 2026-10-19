@@ -5,7 +5,6 @@ import {
   type RateLimiterStore,
 } from '../../src/routing/rateLimiter.js';
 
-/** In-memory fake — same hand-rolled-double preference as CircuitBreaker's tests. */
 class FakeRateLimiterStore implements RateLimiterStore {
   private readonly counters = new Map<string, number>();
 

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isValidCvc, isValidExpiry, isValidLuhn, parseExpiry } from "../src/validation";
+import {
+  isValidCvc,
+  isValidExpiry,
+  isValidLuhn,
+  parseExpiry,
+} from "../src/validation";
 
 describe("isValidLuhn", () => {
   it("accepts well-known test card numbers", () => {

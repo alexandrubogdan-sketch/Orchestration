@@ -5,25 +5,6 @@ import { signOutboundWebhook } from '../../outbound/signature.js';
 import type { TaskDefinition } from '../engine.js';
 import type { OutboxEventEnvelope } from './outboxRelay.js';
 
-/**
- * T8.4: the single consumer task every outbound-webhook-eligible
- * domain event dispatches to, regardless of what actually produced it
- * (today: payment state transitions via
- * src/domain/stateMachineDb.ts#transition; future producers — a
- * subscription cancellation, say — would call `insertOutboxEvent` with
- * the SAME `eventType: OUTBOUND_WEBHOOK_OUTBOX_EVENT_TYPE` convention
- * rather than getting their own dispatch-task-per-event-type, which is
- * what `src/workflow/tasks/outboxRelay.ts`'s naming convention would
- * otherwise require).
- *
- * Fans one outbox event out to every enabled `outbound_webhook_endpoints`
- * row for the event's product that's subscribed to that specific
- * stable event name. Idempotent per (endpoint, outboxEvent) via the
- * migration's `UNIQUE (endpoint_id, outbox_event_id)` constraint —
- * `ON CONFLICT DO NOTHING` on the delivery-row insert means re-running
- * this whole task (e.g. a retry after one endpoint's fetch failed)
- * never double-delivers to an endpoint that already succeeded.
- */
 interface OutboundWebhookPayload {
   event: string;
   productId: string;
@@ -65,10 +46,6 @@ export function createOutboundWebhookDeliveryTask(deps: {
         const subscribedEvents = (endpoint.event_types ?? []) as string[];
         if (!subscribedEvents.includes(payload.event)) continue;
 
-        // A retry of this whole task (Hatchet-level `retries: 3`) must
-        // not re-deliver to an endpoint that already got a successful
-        // response on an earlier attempt — only endpoints still
-        // pending/failed are retried.
         const existing = await deps.db
           .selectFrom('outbound_webhook_deliveries')
           .select('status')

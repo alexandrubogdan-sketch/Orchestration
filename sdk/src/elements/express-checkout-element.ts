@@ -3,27 +3,19 @@ import { StripeDriver } from "../drivers/stripe-driver";
 import type { Money } from "../http";
 
 export type ExpressCheckoutEventMap = {
-  /** Fired once we know whether a wallet button will actually render. */
   ready: { available: boolean };
-  /** Fired when the express-checkout payment succeeds and yields a paymentMethodRef. */
+
   paymentmethod: { paymentMethodRef: string };
 };
 
-/**
- * Wraps the browser's wallet checkout experience (Apple Pay / Google
- * Pay via the standard PaymentRequest API, as exposed through the
- * active driver — today only stripe-driver.ts implements this, via
- * Stripe's own `stripe.paymentRequest()` + `canMakePayment()`).
- *
- * Per spec: auto-hides (renders nothing, mount() is a no-op) if the
- * driver doesn't support express checkout, or if `canMakePayment()`
- * resolves falsy (no wallet available on this device/browser).
- */
 export class ExpressCheckoutElement {
   readonly type = "expressCheckout" as const;
   private container: HTMLElement | null = null;
   private button: HTMLButtonElement | null = null;
-  private readonly listeners = new Map<string, Set<(payload: unknown) => void>>();
+  private readonly listeners = new Map<
+    string,
+    Set<(payload: unknown) => void>
+  >();
 
   constructor(
     private readonly driver: Driver,
@@ -51,22 +43,24 @@ export class ExpressCheckoutElement {
     }
   }
 
-  /**
-   * Mounts the express-checkout button if — and only if — the active
-   * driver supports it and the browser reports a usable wallet is
-   * available. Otherwise this is a deliberate no-op: nothing is
-   * rendered into `container`, matching the "auto-hides if
-   * unsupported" requirement.
-   */
   async mount(container: HTMLElement | string): Promise<void> {
-    const target = typeof container === "string" ? document.querySelector<HTMLElement>(container) : container;
+    const target =
+      typeof container === "string"
+        ? document.querySelector<HTMLElement>(container)
+        : container;
     if (!target) {
-      const description = typeof container === "string" ? container : "<HTMLElement>";
-      throw new Error(`ExpressCheckoutElement.mount(): could not resolve container "${description}".`);
+      const description =
+        typeof container === "string" ? container : "<HTMLElement>";
+      throw new Error(
+        `ExpressCheckoutElement.mount(): could not resolve container "${description}".`,
+      );
     }
     this.container = target;
 
-    if (!this.driver.supportsExpressCheckout() || !(this.driver instanceof StripeDriver)) {
+    if (
+      !this.driver.supportsExpressCheckout() ||
+      !(this.driver instanceof StripeDriver)
+    ) {
       this.emit("ready", { available: false });
       return;
     }

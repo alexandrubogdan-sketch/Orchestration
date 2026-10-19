@@ -7,15 +7,6 @@ import { makeMoney } from '../../src/domain/money.js';
 import type { SettlementRecord } from '../../src/adapters/types.js';
 import { reconcileSettlements, upsertPayoutBatch } from '../../src/ledger/reconciliation.js';
 
-/**
- * T6.5: "Tests: golden settlement file fixtures incl. deliberate
- * mismatch cases." This half of T6.5 exercises reconcileSettlements
- * against real Postgres (test/contract/settlement.contract.test.ts
- * covers the PSP-shape-normalization half). Every "deliberate mismatch
- * case" SPEC.md asks for is its own test below: missing_transaction,
- * amount_mismatch, duplicate_settlement, and unmatched_settlement,
- * plus the success path (a clean match links a payout).
- */
 describe('T6.5 reconcileSettlements (real Postgres)', () => {
   let pool: pg.Pool;
   let db: Db;
@@ -167,8 +158,6 @@ describe('T6.5 reconcileSettlements (real Postgres)', () => {
   });
 
   it('a settlement for an attempt with no matching transactions row raises missing_transaction', async () => {
-    // A payment_attempts row that was never followed by a 'capture' transactions row —
-    // e.g. our own write failed after the PSP call succeeded.
     const paymentId = uuidv7();
     await db
       .insertInto('payments')
@@ -214,7 +203,7 @@ describe('T6.5 reconcileSettlements (real Postgres)', () => {
   it('a settlement whose amount disagrees with our own ledger raises amount_mismatch', async () => {
     const { pspAttemptRef, paymentId } = await seedCapturedPayment(2000);
     const summary = await reconcileSettlements(db, pspAccountId, [
-      settlement({ pspAttemptRef, amount: makeMoney(1999, 'USD') }), // off by 1
+      settlement({ pspAttemptRef, amount: makeMoney(1999, 'USD') }),
     ]);
     expect(summary).toEqual({ matched: 0, linked: 0, exceptions: 1 });
 
@@ -272,12 +261,10 @@ describe('T6.5 reconcileSettlements (real Postgres)', () => {
       .where('type', '=', 'payout')
       .executeTakeFirst();
     expect(payoutTransaction).toBeDefined();
-    expect(Number(payoutTransaction?.amount_minor_units)).toBe(1912); // 2000 - 88 fee
+    expect(Number(payoutTransaction?.amount_minor_units)).toBe(1912);
     expect(Number(payoutTransaction?.fee_minor_units)).toBe(88);
     expect(payoutTransaction?.payout_batch_id).not.toBeNull();
 
-    // The original capture row is untouched (append-only) — it never
-    // gained a payout_batch_id itself.
     const captureTransaction = await db
       .selectFrom('transactions')
       .selectAll()

@@ -34,20 +34,13 @@ async function main() {
   const redis = createRedisClient(config);
   const db = createDb(pgPool);
   const declineMaps = await loadDeclineMaps(db);
-  // T7.1: same per-psp_account outbound rate limiting the API process
-  // applies — the worker calls adapters too (gap-detection,
-  // settlement-ingestion), and both processes share the same Redis
-  // counters per psp_account, so the limit is enforced across the
-  // whole system, not per-process.
+
   const rateLimiter = createOutboundRateLimiter(redis);
   const pspAdapterRegistry = new PspAdapterRegistry(config, declineMaps, rateLimiter);
 
   workflowEngine.registerTask(helloWorldTask);
   workflowEngine.registerTask(createOutboxRelayTask({ db, engine: workflowEngine }));
-  // Per-event-type outbox consumers (outbox.payment.captured, etc.) are
-  // registered here as each milestone introduces them (M6 reconciliation,
-  // M8 dunning) — see src/workflow/tasks/outboxRelay.ts for the
-  // dispatch-naming convention they must follow.
+
   workflowEngine.registerTask(
     createWebhookNormalizeTask({ db, registry: pspAdapterRegistry, engine: workflowEngine }),
   );
@@ -60,47 +53,23 @@ async function main() {
   workflowEngine.registerTask(
     createAccountUpdateIngestionTask({ db, registry: pspAdapterRegistry }),
   );
-  // T8.4: one consumer task for every outbound-webhook-eligible outbox
-  // event, regardless of which domain event produced it — see that
-  // task's own docblock.
+
   workflowEngine.registerTask(createOutboundWebhookDeliveryTask({ db }));
 
-  // Drain the outbox every minute. A minute of relay latency is
-  // acceptable for M1 — nothing downstream depends on sub-minute outbox
-  // delivery yet; revisit if a future consumer needs tighter latency.
   await workflowEngine.cron('outbox.relay', {}, { expression: '* * * * *' });
 
-  // Gap-detection (T3.5): every 5 minutes, resync any payment that's
-  // been sitting in an in-flight state for >15 minutes (the handler's
-  // own default — see gapDetection.ts) without a webhook moving it
-  // forward.
   await workflowEngine.cron('payments.gap-detection', {}, { expression: '*/5 * * * *' });
 
-  // Settlement ingestion (T6.2): every 6 hours — settlement/payout data
-  // isn't time-critical the way webhooks are, and PSPs typically batch
-  // it well below that cadence anyway.
   await workflowEngine.cron('ledger.settlement-ingestion', {}, { expression: '0 */6 * * *' });
 
-  // Nightly invariants (T6.4): once a day, off-peak.
   await workflowEngine.cron('ledger.nightly-invariants', {}, { expression: '0 3 * * *' });
 
-  // Subscription renewals (T8.1): hourly — frequent enough that a
-  // subscription is never more than an hour late, without hammering
-  // the DB every minute for what's typically a small due-batch.
   await workflowEngine.cron('subscriptions.renewal-dispatcher', {}, { expression: '0 * * * *' });
 
-  // Dunning (T8.2): every 15 minutes — finer-grained than renewals
-  // since dunning_next_retry_at values land at arbitrary times of day
-  // (ladder delays are hour-based, not aligned to the renewal cron's
-  // own schedule).
   await workflowEngine.cron('subscriptions.dunning', {}, { expression: '*/15 * * * *' });
 
-  // Account updates (T8.3): every 6 hours, same cadence as settlement
-  // ingestion — neither is time-critical the way webhooks are.
   await workflowEngine.cron('payment_methods.account-updates', {}, { expression: '0 */6 * * *' });
 
-  // The worker has no Fastify instance; expose /metrics on its own tiny
-  // HTTP server so Prometheus can still scrape it (T0.5/T7.2).
   const metricsServer = http.createServer((req, res) => {
     if (req.url === '/metrics') {
       registry

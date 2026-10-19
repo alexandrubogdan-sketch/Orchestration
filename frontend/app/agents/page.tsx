@@ -32,10 +32,7 @@ export default function AgentsPage() {
   const [creating, setCreating] = useState(false);
   const [revealing, setRevealing] = useState<AgentToken | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
-  // Lazy initializer (not an effect) so this is correct from the very
-  // first client render with no extra setState-after-mount round trip —
-  // on the server it falls back to a placeholder that's never actually
-  // shown to a user (this whole page is a "use client" component).
+
   const [mcpUrl] = useState(() =>
     typeof window !== "undefined" ? `${window.location.origin}/api/mcp` : "/api/mcp",
   );
@@ -43,11 +40,6 @@ export default function AgentsPage() {
   useEffect(() => {
     let cancelled = false;
 
-    // Deliberately no synchronous setLoading(true)/setBackendError(null)
-    // here — the initial useState values above already are (true, null),
-    // and this effect only ever runs once (empty deps), matching
-    // app/payments/page.tsx's own established convention for the same
-    // lint rule (react-hooks/set-state-in-effect).
     fetch("/api/agent-tokens")
       .then(async (res) => {
         const body = await res.json();

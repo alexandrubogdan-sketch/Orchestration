@@ -21,22 +21,6 @@ function slugify(text: string): string {
     .replace(/-+/g, "-");
 }
 
-/**
- * Right-hand "On this page" table of contents for the /docs section.
- *
- * Headings are derived at runtime from the rendered content
- * (`document.querySelectorAll('h2, h3')`) rather than passed in as props,
- * since docs pages are static JSX and duplicating a heading list per page
- * would just be another thing to keep in sync. Any heading missing a
- * stable `id` gets one assigned (slugified from its text, de-duplicated)
- * so anchor links and scroll-spy both have something to target.
- *
- * Scroll-spy uses IntersectionObserver instead of a scroll listener —
- * cheaper, and avoids re-computing bounding boxes on every scroll tick.
- *
- * Renders nothing (returns null) when the page has fewer than
- * MIN_HEADINGS headings, so short pages don't show a near-empty sidebar.
- */
 export function Toc() {
   const pathname = usePathname();
   const [headings, setHeadings] = useState<TocHeading[]>([]);
@@ -67,11 +51,6 @@ export function Toc() {
       };
     });
 
-    // Deferred (rather than called synchronously in the effect body) since
-    // this state is derived from a DOM measurement taken after mount, not
-    // from a prop/state change React already knows about — queuing it as a
-    // microtask avoids the cascading-render footgun the "set state in
-    // effect" rule is guarding against while still updating before paint.
     queueMicrotask(() => {
       setHeadings(derived);
       setActiveId(derived[0]?.id ?? null);
@@ -107,7 +86,7 @@ export function Toc() {
   }
 
   return (
-    <nav aria-label="On this page" className="sticky top-10 max-h-[calc(100vh-5rem)] overflow-y-auto pl-6">
+    <nav aria-label="On this page" className="sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto pl-6">
       <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         On this page
       </div>

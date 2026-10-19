@@ -18,28 +18,6 @@ import {
   type VerifiedEvent,
 } from '../types.js';
 
-/**
- * Deterministic fake PSP (T2.2). Scriptable outcomes by magic amount —
- * every integration test in this codebase that needs "a PSP" without a
- * network dependency uses this adapter, not a mocking library, per
- * SPEC.md's framing of `adapters/mock/` as a first-class implementation
- * of PspAdapter, not a test double.
- *
- * Magic amounts (minor units), per SPEC.md T2.2:
- * - 4000 -> declined, insufficient_funds (soft — retryable)
- * - 4001 -> declined, stolen_card (hard — never retryable; added in
- *   Milestone 8 so subscription/dunning tests can deterministically
- *   exercise "hard decline cancels outright" without a live PSP)
- * - 5000 -> requires_action (3DS challenge)
- * - 9000 -> "timeout-after-success": the PSP call throws (simulating a
- *   dropped/lost response) but the attempt is recorded as succeeded on
- *   the "PSP side" — retrying with the SAME idempotencyKey must return
- *   that already-successful attempt, not create a second one. This is
- *   exactly the scenario T2.6's failure-injection test exercises.
- * - anything else -> authorized (or captured, if captureMethod is
- *   'automatic')
- */
-
 interface StoredAttempt {
   pspAttemptRef: string;
   status: CanonicalAttemptStatus;
@@ -48,21 +26,15 @@ interface StoredAttempt {
   context: AttemptContext;
   decline?: NormalizedDecline | undefined;
   networkTransactionId?: string | undefined;
-  /** Milestone 6: when this attempt most recently settled (captured/refunded), for listSettlements(). */
+
   settledAt?: string | undefined;
-  /** Milestone 6: the amount actually settled (may differ from `amount` for a partial refund). */
+
   settledAmount?: Money | undefined;
 }
 
-// 29/1000 (= 2.9%) expressed as integer basis points rather than a
-// float literal — the repo's ESLint config specifically bans
-// `<integer> * <float literal>` in money paths (see .eslintrc.cjs) to
-// catch exactly this kind of accidental float-money bug, so even this
-// fully-synthetic mock fee goes through integer-only arithmetic.
 const MOCK_FEE_BASIS_POINTS = 290;
 const MOCK_FEE_FIXED_MINOR_UNITS = 30;
 
-/** Flat 2.9% + 30 cents — deterministic, not meant to model any real PSP's actual pricing. */
 function mockFee(amount: Money): Money {
   const feeMinorUnits =
     Math.round((amount.minorUnits * MOCK_FEE_BASIS_POINTS) / 10_000) + MOCK_FEE_FIXED_MINOR_UNITS;
@@ -85,10 +57,7 @@ const MOCK_DECLINE_MAP: Record<string, NormalizedDecline> = {
     category: 'soft',
     retryClass: 'same_instrument_later',
   },
-  // Milestone 8: a HARD decline magic amount, distinct from 4000's soft
-  // one — needed so tests of "hard declines cancel a subscription
-  // outright instead of dunning" (T8.1/T8.2) have a deterministic way
-  // to produce one without a live PSP.
+
   stolen_card: {
     psp: 'mock',
     rawCode: 'stolen_card',
@@ -111,7 +80,6 @@ export class MockAdapter implements PspAdapter {
     this.signingSecret = options.signingSecret ?? 'mock-webhook-secret';
   }
 
-  /** Test/integration helper — simulates the pipeline draining pending webhooks. */
   drainWebhooks(): MockWebhookEnvelope[] {
     return this.webhookOutbox.splice(0, this.webhookOutbox.length);
   }
@@ -120,17 +88,9 @@ export class MockAdapter implements PspAdapter {
     this.webhookOutbox.push({ ...envelope, providerEventId: randomUUID() });
   }
 
-  // `async` is required here, not just stylistic: the 9000-minor-units
-  // branch below throws synchronously to simulate a lost response
-  // (T2.6). Without `async`, that throw would escape as a synchronous
-  // exception instead of a rejected Promise, which breaks every caller
-  // written against this interface as `await adapter.createPayment(...)`
-  // (including `expect(...).rejects.toThrow(...)` in tests).
   async createPayment(input: CreatePaymentInput): Promise<AttemptResult> {
     const existing = this.attemptsByIdempotencyKey.get(input.idempotencyKey);
     if (existing) {
-      // Real PSP idempotency behavior: replaying the same key returns
-      // the original result, never a new attempt.
       return this.toAttemptResult(existing);
     }
 
@@ -194,10 +154,6 @@ export class MockAdapter implements PspAdapter {
     }
 
     if (minorUnits === 9000) {
-      // Record success "on the PSP side" — and enqueue the webhook a
-      // real PSP would still send, since webhooks are delivered over an
-      // independent channel from the synchronous API response — before
-      // throwing to simulate that synchronous response getting lost.
       const status: CanonicalAttemptStatus =
         input.captureMethod === 'automatic' ? 'captured' : 'authorized';
       const stored: StoredAttempt = {
@@ -343,14 +299,6 @@ export class MockAdapter implements PspAdapter {
     };
   }
 
-  /**
-   * Milestone 6, T6.2: one settlement line per attempt that has ever
-   * settled (captured or refunded) at or after `sinceIso`, with a
-   * synthetic fee and a payout ref grouped by settlement DATE (so every
-   * attempt settled on the same day lands in the same synthetic
-   * payout — see `listPayouts`). Deterministic and in-memory, matching
-   * this adapter's whole reason for existing (T2.2).
-   */
   listSettlements(sinceIso: string): Promise<SettlementRecord[]> {
     const since = new Date(sinceIso).getTime();
     const records: SettlementRecord[] = [];
@@ -371,7 +319,6 @@ export class MockAdapter implements PspAdapter {
     return Promise.resolve(records);
   }
 
-  /** One synthetic payout per distinct settlement date implied by listSettlements(). */
   async listPayouts(sinceIso: string): Promise<PayoutRecord[]> {
     const settlements = await this.listSettlements(sinceIso);
     const byPayoutRef = new Map<string, { currency: string; net: number }>();
@@ -392,13 +339,6 @@ export class MockAdapter implements PspAdapter {
     }));
   }
 
-  /**
-   * Test-only helper (T8.3): schedules an account-updater notification
-   * for `listAccountUpdates` to surface on its next call at or after
-   * `scheduledAt` (defaults to now). Real PSPs push these
-   * asynchronously on their own timeline; nothing about `createPayment`
-   * et al. generates one on its own, unlike settlements.
-   */
   scheduleAccountUpdate(
     update: AccountUpdateRecord,
     scheduledAt: string = new Date().toISOString(),
@@ -435,7 +375,6 @@ export class MockAdapter implements PspAdapter {
   }
 }
 
-/** Thrown by createPayment() for the 9000-minor-units magic amount — see class doc. */
 export class MockTimeoutError extends Error {
   constructor(public readonly idempotencyKey: string) {
     super(`MockAdapter: simulated timeout after success for idempotencyKey=${idempotencyKey}`);

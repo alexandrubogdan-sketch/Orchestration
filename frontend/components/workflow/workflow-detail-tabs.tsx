@@ -5,17 +5,6 @@ import { cn } from "@/lib/utils";
 
 export type WorkflowDetailTab = "canvas" | "runs" | "history";
 
-/**
- * Mirrors the real client's per-workflow WorkflowTabsComponent
- * (module/workflow (singular) — element/tab/workflow-tabs.component.tsx):
- * a line-style tab triplet (Canvas / Runs / History) sitting just below
- * the workflow's own top bar (name, status chip, save/publish actions),
- * switching which panel renders below it. Visually mirrors this
- * frontend's own WorkflowsTabs (components/workflow/workflows-tabs.tsx —
- * the LIST page's Workflows/Lists tab pair) for the same active/inactive
- * pill styling, but is a separate component instance/tab set since it
- * lives on the single-workflow detail page instead.
- */
 export function WorkflowDetailTabs({
   active,
   onChange,

@@ -1,26 +1,3 @@
-/**
- * Milestone 8, T8.4: "Outbound webhooks to products." Products
- * register one or more endpoints (per product, since a product's
- * webhook consumer is its own system, distinct from a sibling
- * product's) and subscribe to a list of stable event names — the SAME
- * vocabulary `src/api/timeline.ts` already defines for a payment's own
- * timeline (`captured`, `declined`, `refunded`, ...), reused here
- * rather than inventing a second event-naming scheme.
- *
- * `signing_secret` is stored directly (not hashed) because, unlike
- * `api_tokens.token_hash`, we need the raw value again on every
- * outbound delivery to compute the HMAC signature — there's no
- * "compare a hash" path for an outbound signer the way there is for an
- * inbound bearer token. Same dev-mode-stand-in posture as
- * `psp_accounts.webhook_secret_ref` (ADR-0003).
- *
- * `outbound_webhook_deliveries` is a mutable log (status
- * pending/delivered/failed/dlq, `attempts` incrementing) — not
- * append-only, matching `recon_exceptions`'s precedent: this is
- * operational tracking of a delivery attempt's lifecycle, not an
- * immutable financial fact.
- */
-
 exports.shorthands = undefined;
 
 exports.up = (pgm) => {

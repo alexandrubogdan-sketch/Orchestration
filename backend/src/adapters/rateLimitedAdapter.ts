@@ -15,20 +15,6 @@ import type {
   VerifiedEvent,
 } from './types.js';
 
-/**
- * T7.1: wraps any `PspAdapter` so every outbound-network-call method
- * is gated by `OutboundRateLimiter.checkAndConsume` first — one
- * decorator, every adapter (mock included, for consistent test/prod
- * behavior) gets rate limiting without each adapter implementation
- * needing to know about Redis or rate-limit config itself
- * (Non-negotiable #7's spirit: adapters stay focused on PSP specifics,
- * not cross-cutting ops concerns).
- *
- * Purely local/synchronous methods (`verifyWebhook`, `normalizeEvent`,
- * `extractPaymentId`, `extractPspAttemptRef`, `normalizeDecline`,
- * `capabilities`) pass straight through — there's no outbound call to
- * throttle.
- */
 export class RateLimitedPspAdapter implements PspAdapter {
   readonly psp: string;
 

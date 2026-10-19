@@ -7,19 +7,6 @@ import { getMockWorkflowRuns } from "@/lib/mock-data";
 import type { WorkflowRunStatus } from "@/lib/types";
 import { formatDateTime } from "@/lib/utils";
 
-/**
- * "Runs" tab on the workflow detail page — mirrors the real client's
- * WorkflowRunsComponent (module/workflow (singular) — element/runs/
- * workflow-runs.component.tsx), a table of individual executions of
- * this workflow's node chain: run id, status, the payment that
- * triggered it, when it started, and how long it took. Data comes from
- * lib/mock-data.ts#getMockWorkflowRuns, seeded from the workflow's own
- * id like every other mock table in this app (see that file's doc
- * comment). Column/badge usage mirrors workflows-table.tsx (the list
- * page's table) to stay visually consistent across the Workflows
- * section.
- */
-
 const STATUS_TONES: Record<WorkflowRunStatus, BadgeTone> = {
   succeeded: "success",
   failed: "danger",

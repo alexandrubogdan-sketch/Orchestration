@@ -7,15 +7,6 @@ import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import type { LiveCustomer } from "@/lib/live-api";
 import { formatDate } from "@/lib/utils";
 
-/** Live-mode customers table — deliberately a separate, narrower
- *  component from components/customers/customers-table.tsx rather
- *  than reusing it: that table's Customer type requires
- *  firstName/lastName/country/address/subscription/paymentMethods,
- *  none of which the real backend's CustomerDTO returns (the
- *  `customers` table has no such columns — see
- *  payment-orchestrator-go/internal/api/customers.go's top doc
- *  comment). Renders exactly id/email/externalRef/createdAt, and says
- *  so plainly rather than padding the table with fabricated columns. */
 export function LiveCustomersTable({ customers }: { customers: LiveCustomer[] }) {
   const [search, setSearch] = useState("");
 

@@ -8,28 +8,6 @@ import { CheckoutConditions } from "@/components/checkout/checkout-conditions";
 import { CheckoutPreview } from "@/components/checkout/checkout-preview";
 import { useCheckoutStore, useIsCheckoutDirty } from "@/lib/checkout-store";
 
-/**
- * Checkout configurator — modeled on a real orchestrator client's
- * Checkout module: a header with a Publish button (red unsaved-
- * changes dot while dirty) above a responsive 3-column layout
- * (methods list / conditions panel / live preview), matching that
- * client's own `grid-cols-[auto_1fr]` -> `[auto_2fr_2fr]` breakpoint
- * shape at `min-width: 1260px`.
- *
- * Every other page in this frontend renders against local Zustand
- * state + generated fixtures, never a live API (see lib/mock-data.ts's
- * top doc comment) — this page keeps that convention for its OWN
- * config state (lib/checkout-store.ts's methods/conditions, "Publish"
- * button). The one exception, and it's a deliberate one: the preview
- * column on the right genuinely drives this repo's own
- * `@alphapayments/checkout-sdk` package end-to-end (real card
- * validation, real confirm()/state-classification code paths) by
- * injecting a tiny in-memory fake `fetch` at the SDK's own
- * `fetchImpl` extension point instead of skipping the SDK entirely —
- * see components/checkout/checkout-preview.tsx's doc comment for
- * exactly why that's still "no real fetch() call" in spirit: nothing
- * here ever reaches an actual network socket.
- */
 export default function CheckoutPage() {
   const isDirty = useIsCheckoutDirty();
   const isPublishing = useCheckoutStore((s) => s.isPublishing);

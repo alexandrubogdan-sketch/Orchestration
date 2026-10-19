@@ -1,11 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CircuitBreaker, type BreakerStore } from '../../src/routing/circuitBreaker.js';
 
-/**
- * In-memory fake implementing just the five methods `CircuitBreaker`
- * needs (T5.5) — no real Redis, matching this project's preference for
- * small hand-rolled test doubles over a mocking library.
- */
 class FakeBreakerStore implements BreakerStore {
   private readonly values = new Map<string, string>();
   private readonly counters = new Map<string, number>();
@@ -27,10 +22,12 @@ class FakeBreakerStore implements BreakerStore {
     this.counters.set(key, next);
     return Promise.resolve(next);
   }
+  claim(key: string): Promise<boolean> {
+    if (this.values.has(key)) return Promise.resolve(false);
+    this.values.set(key, '1');
+    return Promise.resolve(true);
+  }
   expire(): Promise<unknown> {
-    // The fake never actually expires keys — tests that care about
-    // window/cooldown expiry manipulate Date.now() via vi.useFakeTimers()
-    // instead of relying on real wall-clock TTLs.
     return Promise.resolve(1);
   }
 }
@@ -48,7 +45,7 @@ describe('CircuitBreaker', () => {
     const breaker = new CircuitBreaker(new FakeBreakerStore(), config);
     await breaker.recordFailure('psp-1');
     await breaker.recordFailure('psp-1');
-    expect(await breaker.getState('psp-1')).toBe('closed'); // 2 < threshold of 3
+    expect(await breaker.getState('psp-1')).toBe('closed');
 
     await breaker.recordFailure('psp-1');
     expect(await breaker.getState('psp-1')).toBe('open');
@@ -75,7 +72,8 @@ describe('CircuitBreaker', () => {
 
       vi.advanceTimersByTime(config.cooldownMs + 1);
       expect(await breaker.getState('psp-1')).toBe('half_open');
-      expect(await breaker.isAvailable('psp-1')).toBe(true); // half-open allows a trial
+      expect(await breaker.isAvailable('psp-1')).toBe(true);
+      expect(await breaker.isAvailable('psp-1')).toBe(false);
 
       await breaker.recordSuccess('psp-1');
       expect(await breaker.getState('psp-1')).toBe('closed');
@@ -97,7 +95,6 @@ describe('CircuitBreaker', () => {
       await breaker.recordFailure('psp-1');
       expect(await breaker.getState('psp-1')).toBe('open');
 
-      // Still open right after the retry — the cooldown restarted.
       vi.advanceTimersByTime(config.cooldownMs - 1);
       expect(await breaker.getState('psp-1')).toBe('open');
     } finally {
@@ -111,7 +108,7 @@ describe('CircuitBreaker', () => {
     await breaker.recordSuccess('psp-1');
     await breaker.recordFailure('psp-1');
     await breaker.recordFailure('psp-1');
-    // Only 2 failures accumulated after the reset — still closed.
+
     expect(await breaker.getState('psp-1')).toBe('closed');
   });
 });

@@ -40,7 +40,6 @@ describe('applyTransition — happy paths', () => {
     state = applyTransition('refund_pending', { type: 'refunded' });
     expect(state).toEqual({ kind: 'transitioned', from: 'refund_pending', to: 'refunded' });
 
-    // A second partial refund cycles back through refund_pending.
     state = applyTransition('refunded', { type: 'refund_started' });
     expect(state).toEqual({ kind: 'transitioned', from: 'refunded', to: 'refund_pending' });
   });
@@ -93,8 +92,6 @@ describe('applyTransition — terminal states never move', () => {
 
 describe('applyTransition — late / out-of-order events', () => {
   it('records a recognized-but-inapplicable event as late rather than throwing', () => {
-    // "authorized" is only valid from "authorizing"; replaying it once
-    // the payment has already moved to "authorized" must not throw.
     const outcome = applyTransition('authorized', { type: 'authorized' });
     expect(outcome).toEqual({ kind: 'late', currentState: 'authorized' });
   });

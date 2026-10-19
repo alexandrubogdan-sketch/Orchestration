@@ -4,21 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-/**
- * Small in-page tab nav for the Workflows section (Workflows list |
- * Retries), rendered above the page content on both
- * app/workflows/page.tsx and app/workflows/retries/page.tsx. This
- * section had no existing sub-tab pattern to follow (Workflows was
- * previously a flat list page -> [id] detail page, with no
- * intermediate tab level, and the main Sidebar's own NAV_ITEMS list is
- * one level, one link per top-level section — see
- * components/layout/sidebar.tsx). Rather than invent a heavier
- * shadcn-style Tabs primitive for this one section, this mirrors the
- * SIDEBAR's own active-link styling (bg-accent/10 + text-accent-foreground
- * for the active item, muted-foreground + hover otherwise) at a
- * smaller scale, so a new user recognizes it as "the same kind of
- * navigation" rather than a one-off widget.
- */
 export function WorkflowsSubnav() {
   const pathname = usePathname();
   const items = [

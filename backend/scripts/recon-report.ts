@@ -1,10 +1,3 @@
-/**
- * T6.3 admin command: `make recon-report`. Prints every OPEN
- * `recon_exceptions` row, grouped by psp_account and type, to stdout —
- * the "zero unexplained exceptions" review-gate SPEC.md's Milestone 6
- * goal describes is read directly off this report's output, not
- * inferred from raw table contents.
- */
 import { loadConfig } from '../src/config/index.js';
 import { createPostgresPool } from '../src/infra/postgres.js';
 import { createDb } from '../src/db/client.js';

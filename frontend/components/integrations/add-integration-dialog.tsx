@@ -14,10 +14,6 @@ import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PROCESSOR_LABELS, PROCESSORS, type ProcessorId } from "@/lib/types";
 
-/** Suggests "Stripe", then "Stripe 2", "Stripe 3", ... for each additional
- *  instance of the same processor — merchants commonly run several Stripe
- *  accounts (one per entity/region), so instances need a name to tell them
- *  apart in the Workflow builder's processor pickers. */
 function suggestDisplayName(processor: ProcessorId, existingNames: string[]): string {
   const base = PROCESSOR_LABELS[processor];
   if (!existingNames.includes(base)) return base;

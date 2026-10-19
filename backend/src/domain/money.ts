@@ -1,13 +1,3 @@
-/**
- * Non-negotiable #1: "Money is integers. All amounts are integer minor
- * units + ISO 4217 currency code. Any float in a money path is a bug."
- *
- * `Money` is a branded type so a raw `number`/`{amount, currency}`
- * object can never be accidentally passed where a validated Money value
- * is expected — it must go through `makeMoney`, which is the one place
- * that enforces "integer minor units."
- */
-
 const MONEY_BRAND = Symbol('Money');
 
 export interface Money {
@@ -23,10 +13,6 @@ export class InvalidMoneyError extends Error {
   }
 }
 
-// Not exhaustive of ISO 4217, but covers every currency this codebase's
-// PSPs (Stripe first, per SPEC.md) are likely to process at launch.
-// Extend as new corridors are added — this list exists to catch typos
-// ("USDD", "eur") at the boundary, not to be a complete registry.
 const KNOWN_CURRENCIES = new Set([
   'USD',
   'EUR',
@@ -50,23 +36,12 @@ const KNOWN_CURRENCIES = new Set([
   'AED',
 ]);
 
-// Zero-decimal currencies per ISO 4217 / Stripe's currency list. Minor
-// units ARE the whole unit for these — JPY 100 means ¥100, not ¥1.00.
 const ZERO_DECIMAL_CURRENCIES = new Set(['JPY', 'KRW', 'VND', 'CLP', 'ISK', 'HUF']);
 
 export function isZeroDecimalCurrency(currency: string): boolean {
   return ZERO_DECIMAL_CURRENCIES.has(currency.toUpperCase());
 }
 
-/**
- * The only constructor for Money. Validates:
- * - minorUnits is a safe integer (rejects floats, NaN, Infinity, and
- *   anything requiring more precision than a JS number can hold exactly)
- * - minorUnits is non-negative (refunds/adjustments are modeled as
- *   separate signed ledger entries, not negative Money — see
- *   src/ledger/, Milestone 6)
- * - currency is a recognized 3-letter uppercase ISO 4217 code
- */
 export function makeMoney(minorUnits: number, currency: string): Money {
   if (!Number.isInteger(minorUnits)) {
     throw new InvalidMoneyError(
@@ -96,14 +71,6 @@ export function makeMoney(minorUnits: number, currency: string): Money {
   return { [MONEY_BRAND]: true, minorUnits, currency: normalizedCurrency };
 }
 
-/**
- * Explicit, named conversion from a decimal string (e.g. "19.99") to
- * Money — the ONE sanctioned place a decimal/float representation is
- * allowed to enter the system (e.g. parsing a merchant-configured price
- * from a config file). Takes a string, not a number, specifically so
- * callers can't do `fromDecimal(19.99 * 100)` and reintroduce float
- * rounding error before this function ever sees it.
- */
 export function fromDecimalString(decimal: string, currency: string): Money {
   if (!/^-?\d+(\.\d+)?$/.test(decimal.trim())) {
     throw new InvalidMoneyError(`fromDecimalString: "${decimal}" is not a plain decimal string`);
@@ -134,13 +101,6 @@ export function add(a: Money, b: Money): Money {
   return makeMoney(a.minorUnits + b.minorUnits, a.currency);
 }
 
-/**
- * Subtraction is intentionally the only place a "negative" outcome is
- * even possible, and it throws rather than returning a negative Money
- * (Money is always non-negative — see makeMoney). Model refunds/credits
- * as their own ledger entries with their own sign semantics
- * (src/ledger/), not as negative Money.
- */
 export function subtract(a: Money, b: Money): Money {
   assertSameCurrency(a, b);
   if (b.minorUnits > a.minorUnits) {
@@ -151,7 +111,6 @@ export function subtract(a: Money, b: Money): Money {
   return makeMoney(a.minorUnits - b.minorUnits, a.currency);
 }
 
-/** Multiply by an integer factor only (e.g. quantity) — never a float. */
 export function multiplyByInt(a: Money, factor: number): Money {
   if (!Number.isInteger(factor)) {
     throw new InvalidMoneyError(
@@ -163,13 +122,6 @@ export function multiplyByInt(a: Money, factor: number): Money {
   return makeMoney(a.minorUnits * factor, a.currency);
 }
 
-/**
- * Splits `total` into `parts` non-negative integer shares that sum
- * exactly back to `total.minorUnits` — the standard "distribute a
- * remainder" allocation algorithm, so proportional splits (e.g.
- * routing_split percentages, §4 of the design doc) never lose or
- * fabricate a minor unit to floating-point rounding.
- */
 export function allocate(total: Money, weights: number[]): Money[] {
   if (weights.length === 0) {
     throw new InvalidMoneyError('allocate() requires at least one weight');
@@ -212,7 +164,6 @@ export function isLessThan(a: Money, b: Money): boolean {
   return a.minorUnits < b.minorUnits;
 }
 
-/** Display-only formatting (e.g. dashboard/logs) — never parsed back. */
 export function toDisplayString(money: Money): string {
   if (isZeroDecimalCurrency(money.currency)) {
     return `${money.minorUnits} ${money.currency}`;

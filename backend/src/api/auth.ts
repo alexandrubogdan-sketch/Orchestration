@@ -2,20 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { uuidv7 } from 'uuidv7';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db/client.js';
-
-/**
- * T4.1: "Service auth: per-product API tokens (hashed at rest), scoping
- * product_id/entity_id; audit log of admin calls."
- *
- * Tokens are opaque random strings (`po_<48 hex chars>`), shown to the
- * caller exactly once at creation (scripts/seed.ts prints the raw token
- * for the seeded pilot product — see docs/runbooks). Only the SHA-256
- * hash is ever persisted, matching the pgcrypto-for-token-hashing intent
- * flagged back in the T0.3 migration's docblock — done here in Node
- * rather than via pgcrypto's `digest()` so the same hashing function is
- * usable outside a DB round-trip (e.g. to validate a token format before
- * ever querying).
- */
+import { actionForMethod, isAllowed, resourceForRoute } from './scopes.js';
 
 export function generateApiToken(): { raw: string; hash: string } {
   const raw = `po_${randomBytes(24).toString('hex')}`;
@@ -30,7 +17,18 @@ export interface AuthContext {
   apiTokenId: string;
   productId: string;
   merchantEntityId: string;
+  scopes: string[];
 }
+
+export class ForbiddenError extends Error {
+  readonly statusCode = 403;
+  constructor(message: string) {
+    super(message);
+    this.name = 'ForbiddenError';
+  }
+}
+
+const LAST_USED_RESOLUTION_MS = 60_000;
 
 export class UnauthorizedError extends Error {
   constructor(message = 'Missing or invalid API token') {
@@ -45,17 +43,6 @@ declare module 'fastify' {
   }
 }
 
-/**
- * Guards every `/v1/*` route (the product-facing API surface — health
- * checks, webhooks, and /dev routes are unauthenticated by design) and
- * writes one `audit_log` row per request once a response is sent. Scoping
- * (a product can only ever see/act on its own data) is NOT enforced
- * here — this hook only establishes *who* is calling; every route
- * handler is responsible for filtering its queries by
- * `request.auth.productId` (see src/api/routes/payments.ts), which is
- * what T7.6's authz test ("product A token cannot read product B
- * payments") actually exercises.
- */
 export function registerAuth(app: FastifyInstance, deps: { db: Db }): void {
   app.addHook('preHandler', async (request) => {
     if (!request.url.startsWith('/v1/')) return;
@@ -68,7 +55,7 @@ export function registerAuth(app: FastifyInstance, deps: { db: Db }): void {
 
     const row = await deps.db
       .selectFrom('api_tokens')
-      .select(['id', 'product_id', 'merchant_entity_id'])
+      .select(['id', 'product_id', 'merchant_entity_id', 'scopes', 'last_used_at'])
       .where('token_hash', '=', hashApiToken(token))
       .where('revoked_at', 'is', null)
       .executeTakeFirst();
@@ -81,7 +68,24 @@ export function registerAuth(app: FastifyInstance, deps: { db: Db }): void {
       apiTokenId: row.id,
       productId: row.product_id,
       merchantEntityId: row.merchant_entity_id,
+      scopes: row.scopes,
     };
+
+    const resource = resourceForRoute(request.routeOptions.url);
+    const action = actionForMethod(request.method);
+    if (resource && !isAllowed(row.scopes, resource, action)) {
+      throw new ForbiddenError(`This API key is missing the ${resource}:${action} scope`);
+    }
+
+    const lastUsed = row.last_used_at ? new Date(row.last_used_at).getTime() : 0;
+    if (Date.now() - lastUsed > LAST_USED_RESOLUTION_MS) {
+      void deps.db
+        .updateTable('api_tokens')
+        .set({ last_used_at: new Date() })
+        .where('id', '=', row.id)
+        .execute()
+        .catch((err: unknown) => request.log.error({ err }, 'failed to record api key usage'));
+    }
   });
 
   app.addHook('onResponse', (request, reply, done) => {
@@ -102,8 +106,6 @@ export function registerAuth(app: FastifyInstance, deps: { db: Db }): void {
       })
       .execute()
       .catch((err: unknown) => {
-        // Audit logging must never break the request it's logging — it
-        // already completed and was sent by the time this hook runs.
         request.log.error({ err }, 'failed to write audit_log row');
       })
       .finally(() => done());

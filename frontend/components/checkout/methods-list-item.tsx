@@ -19,14 +19,6 @@ const METHOD_ICONS: Record<CheckoutMethodType, React.ComponentType<{ className?:
   cash_app: Wallet,
 };
 
-/**
- * One row in the Checkout methods list — mirrors the real client's
- * methods-list-item.component.tsx pixel-for-pixel in structure: drag
- * handle (unlocked+enabled) or lock icon (locked/disabled) on the
- * left, method icon + label, a chevron on the right that brightens
- * when selected, a bottom border that appears when selected, and a
- * soft red tint when the method is flagged invalid.
- */
 export function CheckoutMethodsListItem({
   method,
   isSelected,
@@ -38,9 +30,7 @@ export function CheckoutMethodsListItem({
   isSelected: boolean;
   isInvalid: boolean;
   onSelect: () => void;
-  /** Spread onto the drag handle only when this row is draggable
-   *  (enabled + unlocked) — framer-motion's Reorder.Item supplies
-   *  pointer/drag listeners via this prop from the parent. */
+
   dragHandleProps?: Record<string, unknown>;
 }) {
   const Icon = METHOD_ICONS[method.type];

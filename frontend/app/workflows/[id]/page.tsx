@@ -7,14 +7,6 @@ import { WorkflowDetailTabs, type WorkflowDetailTab } from "@/components/workflo
 import { WorkflowHistoryList } from "@/components/workflow/workflow-history-list";
 import { WorkflowRunsTable } from "@/components/workflow/workflow-runs-table";
 
-/**
- * Structured after the real client's workflow.module.tsx (module/workflow,
- * singular): WorkflowTopComponent (-> BuilderToolbar here) followed by a
- * Canvas/Runs/History tab strip (WorkflowTabsComponent -> WorkflowDetailTabs
- * here), then whichever panel the active tab selects. The canvas panel is
- * the pre-existing builder UI, unchanged — just now gated behind
- * activeTab === "canvas" instead of always rendering.
- */
 export default function WorkflowDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const [activeTab, setActiveTab] = useState<WorkflowDetailTab>("canvas");

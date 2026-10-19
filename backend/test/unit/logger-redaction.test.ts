@@ -5,16 +5,6 @@ import { redactionFormatter } from '../../src/observability/logger.js';
 
 type LogEntry = Record<string, unknown>;
 
-/**
- * Non-negotiable #8: "No PAN/CVV anywhere — not in DB, not in logs, not
- * in error messages. Add a log-scrubbing test that greps for
- * card-number patterns in captured log output." This exercises the real
- * `redactionFormatter` (not a re-implementation of it) against a minimal
- * pino instance so we capture raw JSON synchronously, without pulling in
- * the pino-pretty transport createLogger uses in development. The
- * Milestone 7 (T7.6) test additionally greps rendered log output for
- * card-number regexes as a second, independent check.
- */
 function buildCapturingLogger(): { logger: pino.Logger; lines: string[] } {
   const lines: string[] = [];
   const stream = new Writable({
@@ -94,12 +84,6 @@ describe('log redaction', () => {
   });
 
   describe('T7.6: value-pattern redaction (catches a PAN under an unexpected key)', () => {
-    // Checked against the specific field's rendered value, not the whole
-    // JSON line — pino's own `time` field is itself a 13-digit
-    // epoch-millisecond number and would otherwise false-positive this
-    // assertion (exactly the documented false-positive trade-off in
-    // src/observability/logger.ts's PAN_PATTERN comment, just showing up
-    // in an unexpected place: the test's own assertion, not the redactor).
     it('redacts a card-number-shaped value even under a totally unrelated key name', () => {
       const { logger, lines } = buildCapturingLogger();
       logger.info({ note: 'customer quoted 4242424242424242 over the phone' }, 'support note');

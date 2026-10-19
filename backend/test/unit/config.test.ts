@@ -63,11 +63,6 @@ describe('loadConfig', () => {
   });
 
   it('never accepts a float-looking port or float-looking money-adjacent numeric field silently truncated', () => {
-    // Guards against a coercion footgun: z.coerce.number() on "3000.5"
-    // would produce 3000.5, not an error, unless we're careful. This test
-    // exists because SPEC.md's "money is integers" principle should make
-    // us paranoid about any numeric coercion in the codebase, even
-    // outside the money type itself.
     const config = loadConfig(validEnv);
     expect(Number.isInteger(config.http.port)).toBe(true);
     expect(Number.isInteger(config.metrics.port)).toBe(true);
@@ -80,7 +75,6 @@ describe('loadConfig', () => {
     expect(second.http.port).toBe(3000);
   });
 
-  // ADR-0005: sandbox/production mode must match the Stripe key prefixes.
   it('rejects a live secret key when STRIPE_MODE is sandbox', () => {
     const broken = { ...validEnv, STRIPE_SECRET_KEY: 'sk_live_x' };
     expect(() => loadConfig(broken)).toThrow(ConfigValidationError);

@@ -3,12 +3,6 @@ import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
-/**
- * shadcn/ui Button (New York style), extended with this project's
- * pre-existing variant names (`primary`/`secondary`/`ghost`/`outline`,
- * sizes `sm`/`md`/`icon`) mapped onto shadcn's own so every existing
- * call site across the app kept working unchanged.
- */
 const buttonVariants = cva(
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 [&_svg]:pointer-events-none [&_svg]:shrink-0",
   {

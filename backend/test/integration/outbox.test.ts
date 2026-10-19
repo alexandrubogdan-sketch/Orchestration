@@ -6,15 +6,6 @@ import { insertOutboxEvent } from '../../src/ledger/outbox.js';
 import { createOutboxRelayTask } from '../../src/workflow/tasks/outboxRelay.js';
 import type { WorkflowEngine } from '../../src/workflow/engine.js';
 
-/**
- * T1.6, real-Postgres half: (1) insertOutboxEvent actually participates
- * in the caller's transaction (a rollback rolls back the outbox row
- * too — the "same transaction" guarantee the whole pattern depends on),
- * and (2) the relay's SELECT ... FOR UPDATE SKIP LOCKED batch pull and
- * dispatched/failed bookkeeping behave correctly against real rows. See
- * test/unit/outboxRelay.test.ts for the dispatch-dedupe contract this
- * relies on, which doesn't need a real database.
- */
 class RecordingWorkflowEngine implements WorkflowEngine {
   public dispatched: Array<{ taskName: string; key: string | undefined }> = [];
   public failNextDispatch = false;
@@ -48,6 +39,7 @@ describe('transactional outbox (real Postgres)', () => {
   });
 
   afterEach(async () => {
+    await db.deleteFrom('outbound_webhook_deliveries').execute();
     await db.deleteFrom('outbox').execute();
   });
 
@@ -60,7 +52,7 @@ describe('transactional outbox (real Postgres)', () => {
       db.transaction().execute(async (trx) => {
         await insertOutboxEvent(trx, {
           aggregateType: 'payment',
-          aggregateId: 'test-payment-1',
+          aggregateId: '00000000-0000-7000-8000-000000000001',
           eventType: 'payment.captured',
           payload: { amountMinorUnits: 500 },
         });
@@ -71,7 +63,7 @@ describe('transactional outbox (real Postgres)', () => {
     const rows = await db
       .selectFrom('outbox')
       .selectAll()
-      .where('aggregate_id', '=', 'test-payment-1')
+      .where('aggregate_id', '=', '00000000-0000-7000-8000-000000000001')
       .execute();
     expect(rows).toHaveLength(0);
   });
@@ -80,7 +72,7 @@ describe('transactional outbox (real Postgres)', () => {
     await db.transaction().execute(async (trx) => {
       await insertOutboxEvent(trx, {
         aggregateType: 'payment',
-        aggregateId: 'test-payment-2',
+        aggregateId: '00000000-0000-7000-8000-000000000002',
         eventType: 'payment.captured',
         payload: { amountMinorUnits: 500 },
       });
@@ -89,7 +81,7 @@ describe('transactional outbox (real Postgres)', () => {
     const row = await db
       .selectFrom('outbox')
       .selectAll()
-      .where('aggregate_id', '=', 'test-payment-2')
+      .where('aggregate_id', '=', '00000000-0000-7000-8000-000000000002')
       .executeTakeFirstOrThrow();
     expect(row.status).toBe('pending');
     expect(row.event_type).toBe('payment.captured');
@@ -99,7 +91,7 @@ describe('transactional outbox (real Postgres)', () => {
     await db.transaction().execute(async (trx) => {
       await insertOutboxEvent(trx, {
         aggregateType: 'payment',
-        aggregateId: 'test-payment-3',
+        aggregateId: '00000000-0000-7000-8000-000000000003',
         eventType: 'payment.captured',
         payload: { amountMinorUnits: 750 },
       });
@@ -118,7 +110,7 @@ describe('transactional outbox (real Postgres)', () => {
     const row = await db
       .selectFrom('outbox')
       .selectAll()
-      .where('aggregate_id', '=', 'test-payment-3')
+      .where('aggregate_id', '=', '00000000-0000-7000-8000-000000000003')
       .executeTakeFirstOrThrow();
     expect(row.status).toBe('dispatched');
     expect(row.dispatched_at).not.toBeNull();
@@ -128,7 +120,7 @@ describe('transactional outbox (real Postgres)', () => {
     await db.transaction().execute(async (trx) => {
       await insertOutboxEvent(trx, {
         aggregateType: 'payment',
-        aggregateId: 'test-payment-4',
+        aggregateId: '00000000-0000-7000-8000-000000000004',
         eventType: 'payment.captured',
         payload: {},
       });
@@ -146,10 +138,10 @@ describe('transactional outbox (real Postgres)', () => {
     const row = await db
       .selectFrom('outbox')
       .selectAll()
-      .where('aggregate_id', '=', 'test-payment-4')
+      .where('aggregate_id', '=', '00000000-0000-7000-8000-000000000004')
       .executeTakeFirstOrThrow();
     expect(row.attempts).toBe(1);
-    // Not yet at MAX_RELAY_ATTEMPTS, so it goes back to pending for retry.
+
     expect(row.status).toBe('pending');
   });
 });

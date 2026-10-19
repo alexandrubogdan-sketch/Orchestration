@@ -6,11 +6,6 @@ import { createDb, type Db } from '../../src/db/client.js';
 import { applyAccountUpdate } from '../../src/paymentMethods/applyAccountUpdate.js';
 import { createSubscription } from '../../src/subscriptions/subscriptions.js';
 
-/**
- * T8.3 integration test: applying account-updater notifications
- * against real Postgres, including their effect on any subscription
- * billing the affected instrument.
- */
 describe('applyAccountUpdate (real Postgres)', () => {
   let pool: pg.Pool;
   let db: Db;

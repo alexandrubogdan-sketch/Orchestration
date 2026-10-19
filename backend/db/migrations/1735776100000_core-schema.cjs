@@ -1,27 +1,3 @@
-/**
- * Milestone 1, T1.1: core schema.
- *
- * SQL-first per ADR-0001 — everything here is raw DDL via pgm.sql()
- * rather than the table-builder API, because half of what this
- * migration needs to express (CHECK constraints tied to the canonical
- * state machine, a trigger-enforced append-only rule, partial unique
- * indexes) doesn't have a clean builder-API equivalent, and mixing
- * builder calls with raw SQL in one migration is harder to read than
- * committing to one style.
- *
- * Primary keys are `uuid` columns populated by the application (see
- * db/migrations/1735776000000_init-extensions.cjs for why UUIDv7 is
- * generated in app code, not via a DB extension/default) — so no
- * column here has a `DEFAULT gen_random_uuid()` or similar; every
- * insert must supply an id.
- *
- * State/category/type enums are CHECK constraints on `text` columns,
- * not native Postgres ENUM types — enum types require a migration to
- * add new values and complicate Kysely's generated types across
- * versions; a CHECK constraint is just as strict and is a one-line
- * change to extend later.
- */
-
 exports.shorthands = undefined;
 
 exports.up = (pgm) => {

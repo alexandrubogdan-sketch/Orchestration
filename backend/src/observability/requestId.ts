@@ -10,14 +10,6 @@ export function getRequestId(): string | undefined {
   return storage.getStore()?.requestId;
 }
 
-/**
- * Propagates a request id end-to-end: reuse an inbound `x-request-id` if
- * the caller supplied one (useful when the caller is another internal
- * service), otherwise mint a fresh one. Stashed in AsyncLocalStorage so
- * any code on the request's call stack (including code that doesn't have
- * direct access to the FastifyRequest, e.g. deep in adapters/) can read
- * it for logging/tracing correlation.
- */
 export function registerRequestId(app: FastifyInstance): void {
   app.addHook('onRequest', (request: FastifyRequest, reply, done) => {
     const incoming = request.headers[REQUEST_ID_HEADER];

@@ -16,10 +16,9 @@ export default function ReconciliationDocsPage() {
       <Callout tone="info" title="Backend-only, no dashboard page" className="mb-8">
         Everything on this page describes real, implemented backend behavior, ported from the original
         TypeScript backend to Go — now in <code className="font-mono">
-          payment-orchestrator-go/internal/ledger/
+          backend/src/ledger/
         </code>{" "}
-        (<code className="font-mono">writers.go</code>, <code className="font-mono">settlement.go</code>,{" "}
-        <code className="font-mono">recon.go</code>, <code className="font-mono">invariants.go</code>).
+        (ledger writers, settlement import, reconciliation and nightly invariant checks).
         This dashboard has no Reconciliation page, and the Go rewrite did not carry over the original{" "}
         <code className="font-mono">make recon-report</code> terminal script — there is currently no
         operational surface for this at all beyond the Prometheus gauges described below.

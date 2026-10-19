@@ -9,16 +9,6 @@ import { createRenewalDispatcherTask } from '../../src/workflow/tasks/renewalDis
 import { createDunningProcessorTask } from '../../src/workflow/tasks/dunningProcessor.js';
 import { DUNNING_LADDER_HOURS } from '../../src/subscriptions/dunning.js';
 
-/**
- * T8.1/T8.2 integration test: a full subscription lifecycle against
- * real Postgres and the mock PSP — creation, a successful renewal
- * (MIT, carrying the instrument's stored network_transaction_id), a
- * declined renewal handing off to dunning, dunning recovery, and
- * dunning exhaustion -> cancellation. Task handlers are invoked
- * directly (same pattern as test/integration/reconciliation.test.ts)
- * since there's no live Hatchet broker in this sandbox — see the
- * Milestone 0 summary.
- */
 describe('T8.1/T8.2 subscriptions + dunning (real Postgres)', () => {
   let pool: pg.Pool;
   let db: Db;
@@ -128,7 +118,7 @@ describe('T8.1/T8.2 subscriptions + dunning (real Postgres)', () => {
       customerId,
       paymentMethodId,
       pspAccountId,
-      amountMinorUnits: 1999, // any non-magic amount -> success
+      amountMinorUnits: 1999,
       currency: 'USD',
       intervalUnit: 'month',
     });
@@ -155,10 +145,63 @@ describe('T8.1/T8.2 subscriptions + dunning (real Postgres)', () => {
     expect(new Date(subscription.current_period_start).getTime()).toBeGreaterThan(0);
     expect(new Date(subscription.next_billing_at).getTime()).toBeGreaterThan(Date.now());
 
-    // Re-running the dispatcher immediately must NOT double-bill —
-    // next_billing_at already moved past "now".
     const secondRun = await task.handler({}, fakeCtx);
     expect(secondRun.scanned).toBe(0);
+  });
+
+  it('a renewal interrupted before the PSP call is resumed on the next run instead of stalling', async () => {
+    const paymentMethodId = await seedPaymentMethod();
+    const subscriptionId = await createSubscription(db, {
+      merchantEntityId,
+      productId,
+      customerId,
+      paymentMethodId,
+      pspAccountId,
+      amountMinorUnits: 2999,
+      currency: 'USD',
+      intervalUnit: 'month',
+    });
+    await makeDue(subscriptionId);
+
+    const subscription = await db
+      .selectFrom('subscriptions')
+      .selectAll()
+      .where('id', '=', subscriptionId)
+      .executeTakeFirstOrThrow();
+    const orphanPaymentId = uuidv7();
+    await db
+      .insertInto('payments')
+      .values({
+        id: orphanPaymentId,
+        merchant_entity_id: merchantEntityId,
+        product_id: productId,
+        customer_id: customerId,
+        amount_minor_units: '2999',
+        currency: 'USD',
+        cit_mit: 'mit',
+        routing_decision: JSON.stringify({ strategy: 'subscription-fixed', pspAccountId }),
+        idempotency_key: `sub-${subscriptionId}-period-${new Date(subscription.current_period_start).toISOString()}`,
+        subscription_id: subscriptionId,
+      })
+      .execute();
+
+    const task = createRenewalDispatcherTask({ db, registry });
+    const result = await task.handler({}, fakeCtx);
+    expect(result).toMatchObject({ scanned: 1, charged: 1, failed: 0 });
+
+    const payment = await db
+      .selectFrom('payments')
+      .select('state')
+      .where('id', '=', orphanPaymentId)
+      .executeTakeFirstOrThrow();
+    expect(payment.state).toBe('captured');
+
+    const after = await db
+      .selectFrom('subscriptions')
+      .selectAll()
+      .where('id', '=', subscriptionId)
+      .executeTakeFirstOrThrow();
+    expect(new Date(after.next_billing_at).getTime()).toBeGreaterThan(Date.now());
   });
 
   it('a soft-declined renewal hands off to dunning, which recovers on a later retry', async () => {
@@ -169,7 +212,7 @@ describe('T8.1/T8.2 subscriptions + dunning (real Postgres)', () => {
       customerId,
       paymentMethodId,
       pspAccountId,
-      amountMinorUnits: 4000, // mock: soft decline (insufficient_funds)
+      amountMinorUnits: 4000,
       currency: 'USD',
       intervalUnit: 'month',
     });
@@ -187,10 +230,6 @@ describe('T8.1/T8.2 subscriptions + dunning (real Postgres)', () => {
     expect(subscription.status).toBe('past_due');
     expect(subscription.dunning_stage).toBe(0);
 
-    // Simulate the customer fixing their card before the next retry —
-    // the fastest deterministic way to make the SAME subscription
-    // succeed on a later mock-adapter call is to change the amount
-    // away from the magic decline value.
     await db
       .updateTable('subscriptions')
       .set({ amount_minor_units: '1999' })
@@ -222,7 +261,7 @@ describe('T8.1/T8.2 subscriptions + dunning (real Postgres)', () => {
       .selectAll()
       .where('subscription_id', '=', subscriptionId)
       .execute();
-    expect(payments).toHaveLength(2); // the original decline + the successful dunning retry
+    expect(payments).toHaveLength(2);
   });
 
   it('a hard decline cancels the subscription immediately, without ever going to dunning', async () => {
@@ -233,7 +272,7 @@ describe('T8.1/T8.2 subscriptions + dunning (real Postgres)', () => {
       customerId,
       paymentMethodId,
       pspAccountId,
-      amountMinorUnits: 4001, // mock: hard decline (stolen_card)
+      amountMinorUnits: 4001,
       currency: 'USD',
       intervalUnit: 'month',
     });
@@ -264,8 +303,7 @@ describe('T8.1/T8.2 subscriptions + dunning (real Postgres)', () => {
       currency: 'USD',
       intervalUnit: 'month',
     });
-    // Fast-forward straight to "ladder exhausted" rather than looping
-    // the cron DUNNING_LADDER_HOURS.length times in a test.
+
     await db
       .updateTable('subscriptions')
       .set({ status: 'past_due', dunning_stage: DUNNING_LADDER_HOURS.length })

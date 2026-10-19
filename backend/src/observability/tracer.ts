@@ -5,12 +5,6 @@ import type { AppConfig } from '../config/index.js';
 
 let sdk: NodeSDK | undefined;
 
-/**
- * Starts the OTel Node SDK. Call once at process boot, before any other
- * module that should be auto-instrumented (pg, redis, http, fastify) is
- * imported for its side effects — in practice we call this at the very
- * top of api/server.ts and worker.ts.
- */
 export function startTracing(config: Pick<AppConfig, 'otel'>): NodeSDK {
   if (sdk) return sdk;
 
@@ -18,7 +12,6 @@ export function startTracing(config: Pick<AppConfig, 'otel'>): NodeSDK {
     serviceName: config.otel.serviceName,
     instrumentations: [
       getNodeAutoInstrumentations({
-        // Reduce noise from fs instrumentation in dev.
         '@opentelemetry/instrumentation-fs': { enabled: false },
       }),
     ],

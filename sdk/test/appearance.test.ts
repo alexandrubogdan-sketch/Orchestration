@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_APPEARANCE, resolveAppearance, toCssVariables, toStripeAppearance } from "../src/appearance";
+import {
+  DEFAULT_APPEARANCE,
+  resolveAppearance,
+  toCssVariables,
+  toStripeAppearance,
+} from "../src/appearance";
 
 describe("resolveAppearance", () => {
   it("returns defaults when no overrides are given", () => {

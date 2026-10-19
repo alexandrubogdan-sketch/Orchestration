@@ -1,4 +1,3 @@
-/* eslint-env node */
 module.exports = {
   root: true,
   parser: '@typescript-eslint/parser',
@@ -20,9 +19,6 @@ module.exports = {
   },
   ignorePatterns: ['dist', 'node_modules', 'coverage', 'vitest.config.ts'],
   rules: {
-    // Non-negotiable: no floats in money paths. Enforced case-by-case in
-    // domain/money.ts tests; this rule blocks the most common accidental
-    // footgun of comparing floats directly.
     'no-restricted-syntax': [
       'error',
       {

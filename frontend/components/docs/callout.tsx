@@ -23,11 +23,6 @@ export interface CalloutProps extends HTMLAttributes<HTMLDivElement> {
   title?: string;
 }
 
-/**
- * Docs-only callout box. Used to flag known gaps, mock-only behavior,
- * and other "be honest about it" notes — matching the tone the backend's
- * ADRs and this frontend's README already use.
- */
 export function Callout({ tone = "info", title, className, children, ...props }: CalloutProps) {
   const Icon = TONE_ICON[tone];
   return (

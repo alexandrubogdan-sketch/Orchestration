@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { attachCardInputs, computeChangeState } from "../src/elements/card-inputs";
+import {
+  attachCardInputs,
+  computeChangeState,
+} from "../src/elements/card-inputs";
 
 describe("attachCardInputs + computeChangeState", () => {
   it("starts empty", () => {
     const container = document.createElement("div");
     const elements = attachCardInputs(container, undefined);
-    expect(computeChangeState(elements)).toEqual({ complete: false, empty: true });
+    expect(computeChangeState(elements)).toEqual({
+      complete: false,
+      empty: true,
+    });
   });
 
   it("reports complete: true once a valid card/expiry/cvc are entered", () => {
@@ -16,14 +22,17 @@ describe("attachCardInputs + computeChangeState", () => {
     elements.expiryInput.value = "09/30";
     elements.cvcInput.value = "123";
 
-    expect(computeChangeState(elements)).toEqual({ complete: true, empty: false });
+    expect(computeChangeState(elements)).toEqual({
+      complete: true,
+      empty: false,
+    });
   });
 
   it("reports a validation error for an invalid card number", () => {
     const container = document.createElement("div");
     const elements = attachCardInputs(container, undefined);
 
-    elements.numberInput.value = "4242 4242 4242 4241"; // bad checksum
+    elements.numberInput.value = "4242 4242 4242 4241";
     elements.expiryInput.value = "09/30";
     elements.cvcInput.value = "123";
 

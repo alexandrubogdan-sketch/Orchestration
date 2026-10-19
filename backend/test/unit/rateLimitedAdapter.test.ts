@@ -62,8 +62,6 @@ describe('RateLimitedPspAdapter — T7.1', () => {
     const limiter = new OutboundRateLimiter(new FakeRateLimiterStore(), { requestsPerSecond: 0 });
     const wrapped = new RateLimitedPspAdapter(inner, limiter, 'psp-1');
 
-    // requestsPerSecond: 0 would reject any guarded call immediately —
-    // these must not go through the guard at all.
     expect(wrapped.capabilities()).toEqual(inner.capabilities());
     expect(wrapped.normalizeDecline('insufficient_funds').category).toBe('soft');
   });

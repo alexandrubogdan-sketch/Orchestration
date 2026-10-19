@@ -1,28 +1,8 @@
 import type { ColumnType, Generated, Insertable, Selectable, Updateable } from 'kysely';
 import type { PaymentState } from '../domain/stateMachine.js';
 
-/**
- * Hand-authored Kysely `Database` interface, matching
- * db/migrations/1735776100000_core-schema.cjs column-for-column.
- *
- * ADR-0002 specifies `kysely-codegen` as the intended source of these
- * types, generated from a live Postgres instance. This sandbox has no
- * live Postgres to codegen against, so these are hand-written instead —
- * treat this file as due for regeneration (`npm run db:codegen`, to be
- * wired up once a real database is reachable) the first time someone
- * runs migrations against a real instance. Until then, any schema change
- * must update this file and the migration in the same PR, or Kysely's
- * types will silently drift from reality.
- */
-
-// Not wrapped in Generated<>: Kysely's `Generated<S> = ColumnType<S, S |
-// undefined, S>` does not unwrap a nested ColumnType, so
-// `Generated<ColumnType<...>>` ends up requiring the raw ColumnType as
-// the update/insert value instead of `Date`. For timestamp columns with
-// a DB-side default (created_at/updated_at), the "optional on insert"
-// behavior is expressed directly in the ColumnType's insert parameter.
 type GeneratedTimestamp = ColumnType<Date, Date | string | undefined, Date | string>;
-// For nullable, non-generated timestamp columns (e.g. processed_at).
+
 type Timestamp = ColumnType<Date, Date | string, Date | string>;
 
 export interface MerchantEntitiesTable {
@@ -50,9 +30,9 @@ export interface PspAccountsTable {
   psp: string;
   display_name: string;
   secret_ref: string;
-  /** ADR-0005: nullable — only PSPs with a client-side public key populate this. */
+
   publishable_key_ref: string | null;
-  /** ADR-0005: nullable — populated once a webhook endpoint is registered for this account. */
+
   webhook_secret_ref: string | null;
   mode: PspAccountMode;
   capabilities: Generated<unknown>;
@@ -100,20 +80,13 @@ export interface PaymentsTable {
   merchant_entity_id: string;
   product_id: string;
   customer_id: string;
-  amount_minor_units: string; // bigint surfaces as string via pg driver
+  amount_minor_units: string;
   currency: string;
   state: Generated<PaymentState>;
   cit_mit: 'cit' | 'mit';
   routing_decision: unknown;
   idempotency_key: string | null;
-  /**
-   * Milestone 8, T8.1 — nullable, and insert-optional (unlike most FKs
-   * here) specifically so every pre-existing `insertInto('payments')`
-   * call site from Milestones 1-7 keeps compiling unchanged; a renewal
-   * payment sets it, everything else omits it (Postgres defaults an
-   * omitted nullable column to NULL regardless of what Kysely's
-   * Insertable<> requires be spelled out).
-   */
+
   subscription_id: ColumnType<string | null, string | null | undefined, string | null>;
   created_at: GeneratedTimestamp;
   updated_at: GeneratedTimestamp;
@@ -143,9 +116,9 @@ export interface TransactionsTable {
   amount_minor_units: string;
   currency: string;
   psp_account_id: string;
-  /** Milestone 6, T6.1 — the fee portion netted out of this transaction by the PSP, if any. */
+
   fee_minor_units: Generated<string>;
-  /** Milestone 6, T6.1 — which payout_batches row this settled into, once known. */
+
   payout_batch_id: string | null;
   occurred_at: GeneratedTimestamp;
   created_at: GeneratedTimestamp;
@@ -203,7 +176,7 @@ export type WebhookInboxStatus = 'pending' | 'processing' | 'processed' | 'faile
 export interface WebhookInboxTable {
   id: string;
   psp: string;
-  /** Which of possibly several psp_accounts for this psp verified the signature (T3.1). */
+
   psp_account_id: string | null;
   provider_event_id: string;
   raw_payload: unknown;
@@ -261,6 +234,10 @@ export interface ApiTokensTable {
   merchant_entity_id: string;
   token_hash: string;
   description: string | null;
+  name: string | null;
+  scopes: Generated<string[]>;
+  token_prefix: string | null;
+  last_used_at: Timestamp | null;
   revoked_at: Timestamp | null;
   created_at: GeneratedTimestamp;
   updated_at: GeneratedTimestamp;

@@ -1,10 +1,3 @@
-/**
- * Seed script — SPEC.md: "2 merchant entities, 3 products, 1 Stripe
- * test psp_account, mock PSP account, sample decline map." Idempotent:
- * every insert uses `ON CONFLICT DO NOTHING` keyed on the natural
- * unique constraint, so re-running `make seed` against an
- * already-seeded database is a no-op rather than a duplicate-key error.
- */
 import pg from 'pg';
 import { uuidv7 } from 'uuidv7';
 import { loadConfig } from '../src/config/index.js';
@@ -62,12 +55,6 @@ async function main() {
       .execute();
 
     const pspAccounts = [
-      // Mock listed (and id-generated) first: src/api/routing.ts's naive
-      // routing picks the lowest `id` (UUIDv7, time-sortable) enabled
-      // psp_account for an entity, and the seeded Stripe credentials
-      // below are placeholders, not real sandbox keys — a pilot
-      // integration hitting this seed data should land on the mock PSP
-      // by default, not fail calling real Stripe with fake keys.
       {
         id: uuidv7(),
         merchant_entity_id: usEntity.id,
@@ -97,11 +84,7 @@ async function main() {
         is_enabled: true,
       },
     ];
-    // No unique constraint on psp_accounts to conflict-target against
-    // (an entity can legitimately have multiple accounts with the same
-    // PSP, e.g. one per region), so idempotency here is "skip entirely
-    // if this entity already has any psp_accounts" rather than a
-    // per-row upsert.
+
     const existingPspAccounts = await db
       .selectFrom('psp_accounts')
       .select('id')
@@ -126,12 +109,7 @@ async function main() {
       .onConflict((oc) => oc.columns(['psp', 'raw_code']).doNothing())
       .execute();
 
-    // T4.1: one API token for the pilot product, so `make seed` leaves
-    // behind something immediately usable against the M4 API. Printed
-    // once, in the clear, on purpose — this is dev/CI seed data, never
-    // production (ADR-0003/0005's posture doesn't apply to throwaway
-    // local Postgres data).
-    const pilotProduct = products[1]!; // "One-Time Credits"
+    const pilotProduct = products[1]!;
     const existingToken = await db
       .selectFrom('api_tokens')
       .select('id')
@@ -148,6 +126,8 @@ async function main() {
           product_id: pilotProduct.id,
           merchant_entity_id: usEntity.id,
           token_hash: hash,
+          token_prefix: raw.slice(0, 11),
+          name: 'Seeded pilot key',
           description: 'Seeded pilot-product token (dev only)',
         })
         .execute();

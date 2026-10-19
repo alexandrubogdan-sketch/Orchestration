@@ -8,26 +8,6 @@ import { useWorkflowStore } from "@/lib/workflow-store";
 
 export type WorkflowEdgeData = { workflowId: string; highlighted?: boolean; dimmed?: boolean };
 
-/**
- * Custom edge for connections between two already-placed nodes — per the
- * user's explicit spec: no button at all by default, and only a "×" to
- * delete the connection appears on hover (matching lib/workflow-graph.ts's
- * "default" bezier curve for the path itself). Reconnecting afterward
- * goes through the same hover "+" add-handle every node already has on
- * its dangling handles (components/workflow/add-handle.tsx) — no separate
- * insert-into-edge affordance here, unlike the real client's always-on
- * "+" (see canvas-edge.component.tsx), since the user asked for a single
- * hover-gated "×" instead.
- *
- * Clicking the connection itself (anywhere along the wide invisible hit
- * path below) no longer deletes it — that was the bug: a plain click
- * used to remove the edge outright, with no way to just select it.
- * Deletion is now only ever triggered by the small hover "×" button.
- * A plain click instead bubbles up to canvas.tsx's onEdgeClick, which
- * highlights this edge plus everything reachable downstream from it
- * (highlighted/dimmed flags below, computed there and threaded through
- * this edge's `data`).
- */
 export function CanvasEdgeView({
   id,
   sourceX,
@@ -57,26 +37,10 @@ export function CanvasEdgeView({
   });
 
   function handleDelete(event: MouseEvent<HTMLButtonElement>) {
-    // Keeps this click from also reaching canvas.tsx's onEdgeClick (which
-    // would otherwise briefly re-select an edge that's about to disappear).
     event.stopPropagation();
     if (workflowId) removeEdge(workflowId, id);
   }
 
-  // `highlighted` used to hardcode stroke: "#f8fafc" — a near-white
-  // tone that only reads against a dark canvas. In light mode
-  // (canvas.tsx's --background is #f7f8fa, effectively the same color)
-  // a "highlighted" downstream path became less visible than the
-  // unhighlighted default, which is exactly backwards and is what
-  // looked like the rest of the workflow "disappearing" on click.
-  //
-  // var(--edge-highlight) (app/globals.css) restores that original
-  // white glow look in dark mode, where it reads fine against the dark
-  // canvas, but resolves to a distinct slate tone in light mode instead
-  // of white so it stays visible there too. The drop-shadow glow (using
-  // the paired --edge-highlight-glow) is what gives it the soft "light
-  // effect" look in both themes, rather than relying on the stroke
-  // color alone to read as "highlighted."
   const pathStyle = {
     ...style,
     ...(highlighted
@@ -93,21 +57,12 @@ export function CanvasEdgeView({
     <>
       <BaseEdge id={id} path={edgePath} style={pathStyle} markerEnd={markerEnd} />
 
-      {/* Wider invisible stroke so hovering anywhere near the visible
-          line (not just its exact 1-2px path) reveals the delete button,
-          and clicking anywhere along it selects the connection (handled
-          by canvas.tsx's onEdgeClick, which fires from this element
-          bubbling up — no onClick handler here anymore). */}
       <path
         d={edgePath}
         fill="none"
         stroke="transparent"
         strokeWidth={16}
-        // React Flow's own stylesheet sets `pointer-events: none` on
-        // edge paths by default (edges aren't interactive unless opted
-        // in) — a stylesheet rule beats a bare className, so this has
-        // to be an inline style to actually win and make the wide hit
-        // area hoverable/clickable.
+
         style={{ pointerEvents: "stroke", cursor: "pointer" }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}

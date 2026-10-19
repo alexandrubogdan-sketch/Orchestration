@@ -47,7 +47,7 @@ describe('matchesCriteria', () => {
 
   it('requires every specified dimension to match (AND, not OR)', () => {
     const criteria = { currency: ['USD'], citMit: ['mit' as const] };
-    expect(matchesCriteria(criteria, baseInput)).toBe(false); // currency matches, citMit doesn't
+    expect(matchesCriteria(criteria, baseInput)).toBe(false);
   });
 });
 

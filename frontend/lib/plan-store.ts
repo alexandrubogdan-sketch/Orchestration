@@ -13,9 +13,7 @@ interface PlanStoreState {
   createPlan: (plan: PlanDraft) => string;
   updatePlan: (id: string, plan: PlanDraft) => void;
   deletePlan: (id: string) => void;
-  /** Clones a plan into a brand-new plan with a new id, "(copy)" appended
-   *  to the name, and fresh created/updated timestamps. Returns the new
-   *  plan's id so the caller can open it straight into the edit form. */
+
   duplicatePlan: (id: string) => string | null;
   reset: () => void;
 }

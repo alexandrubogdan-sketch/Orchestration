@@ -8,12 +8,6 @@ import { useEnvironmentStore } from "@/lib/environment-store";
 import { fetchLivePayments, type LivePayment } from "@/lib/live-api";
 import { getMockPayments } from "@/lib/mock-data";
 
-/** Client component (was a Server Component) so it can read the
- *  sidebar's Sandbox/Live toggle (lib/environment-store.ts is
- *  client-only Zustand state) and, in Live mode, fetch real data from
- *  this app's own /api/payments proxy instead of lib/mock-data.ts.
- *  Sandbox behavior is byte-for-byte what this page did before the
- *  toggle existed. */
 export default function PaymentsPage() {
   const environment = useEnvironmentStore((s) => s.environment);
   const [liveStatus, setLiveStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -24,12 +18,6 @@ export default function PaymentsPage() {
     if (environment !== "live") return;
     let cancelled = false;
 
-    // Deliberately no synchronous setLiveStatus("loading") here — the
-    // first activation already starts from that initial state, and
-    // re-fetches after a mode flip keep showing the previous
-    // ready/error result until this new fetch resolves rather than
-    // flashing back to a loading state (a corner case: back-to-back
-    // Sandbox -> Live -> Sandbox -> Live toggling).
     fetchLivePayments()
       .then((res) => {
         if (cancelled) return;

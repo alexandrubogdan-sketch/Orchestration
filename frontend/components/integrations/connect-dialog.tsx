@@ -15,26 +15,8 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { PROCESSOR_CREDENTIAL_FIELDS, type Integration, type IntegrationMode } from "@/lib/types";
 
-/** Stripe's documented limit for a dynamic statement-descriptor *suffix*
- *  (appended to the account's static Dashboard-configured prefix) — see
- *  lib/types.ts's Integration.descriptors doc comment and the matching
- *  DB-level CHECK constraint in payment-orchestrator-go/db/migrations/
- *  1735777500000_psp-account-statement-descriptor.up.sql. */
 const DESCRIPTOR_MAX_LENGTH = 22;
 
-/**
- * Connect *and* Edit dialog for a processor integration. The same form
- * backs both flows (`isEditing` just flips copy/validation) so the mode
- * and statement-descriptor fields live in exactly one place rather than
- * being duplicated across a separate edit dialog.
- *
- * Edit mode intentionally leaves blank credential fields alone instead of
- * requiring every secret to be retyped — see lib/integration-store.ts's
- * `updateIntegration`/`buildCredentialPreviews`, which merge a blank input
- * with the existing masked preview rather than clearing it. Only the mode
- * and descriptor are always applied on save, which is the whole point of
- * Edit existing (as opposed to Disconnect + Connect again).
- */
 export function ConnectDialog({
   integration,
   isEditing = false,
@@ -42,8 +24,7 @@ export function ConnectDialog({
   onClose,
 }: {
   integration: Integration;
-  /** True when opened from the Integrations page's "Edit" action on an
-   *  already-connected integration, rather than "Connect". */
+
   isEditing?: boolean;
   onConnect: (
     mode: IntegrationMode,
@@ -58,8 +39,7 @@ export function ConnectDialog({
   const [descriptor, setDescriptor] = useState(integration.descriptors?.[0] ?? "");
 
   const allFilled = fields.every((field) => (values[field.key] ?? "").trim().length > 0);
-  // Connecting for the first time still requires every credential field;
-  // editing doesn't, since a blank field means "keep the current value."
+
   const credentialsValid = isEditing || allFilled;
   const descriptorTooLong = descriptor.trim().length > DESCRIPTOR_MAX_LENGTH;
 

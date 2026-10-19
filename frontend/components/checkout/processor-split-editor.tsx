@@ -6,12 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-/**
- * A small "route X% to processor Y" split editor, reused by both a
- * condition block's own routing splits and the catch-all merchant
- * split section — the real client's ConditionsMerchantSplitComponent
- * plays the same dual role there.
- */
 export function ProcessorSplitEditor({
   splits,
   onChange,
@@ -19,8 +13,7 @@ export function ProcessorSplitEditor({
 }: {
   splits: CheckoutProcessorSplit[];
   onChange: (splits: CheckoutProcessorSplit[]) => void;
-  /** The merchant-split section always needs at least one row (it's
-   *  the catch-all); condition blocks allow removing down to zero. */
+
   isFirstRequired?: boolean;
 }) {
   const total = splits.reduce((sum, s) => sum + s.sharePercent, 0);

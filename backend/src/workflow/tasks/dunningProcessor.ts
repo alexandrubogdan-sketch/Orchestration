@@ -9,19 +9,6 @@ import {
 } from '../../subscriptions/subscriptions.js';
 import type { TaskDefinition } from '../engine.js';
 
-/**
- * T8.2: "Dunning ladder engine." Processes every `past_due`
- * subscription whose `dunning_next_retry_at` has arrived — see
- * src/subscriptions/dunning.ts for the ladder itself and why it only
- * ever handles already-retryable declines.
- *
- * Each rung gets its own idempotency key
- * (`...-dunning-<stage>`), distinct from the original failed
- * renewal's key and from every other rung — each retry is
- * genuinely a new payment attempt (a new `payments` row), not a
- * mutation of the original declined one (Non-negotiable #5: a
- * declined payment is terminal).
- */
 export interface DunningProcessorInput {
   batchSize?: number;
 }
@@ -70,7 +57,6 @@ export function createDunningProcessorTask(deps: {
           ).toISOString()}-dunning-${decision.nextStage}`;
 
           const outcome = await attemptSubscriptionCharge(deps, subscription, idempotencyKey);
-          if (!outcome) continue; // this rung was already attempted
 
           const { result } = outcome;
           if (result.status === 'declined' || result.status === 'failed') {

@@ -1,8 +1,6 @@
 import { loadConfig } from '../config/index.js';
 import { startTracing } from '../observability/tracer.js';
 
-// OTel must be started before any auto-instrumented module (pg, ioredis,
-// http) is imported for its side effects.
 const config = loadConfig();
 startTracing(config);
 
@@ -25,16 +23,12 @@ async function main() {
   const db = createDb(pgPool);
 
   const declineMaps = await loadDeclineMaps(db);
-  // T7.1: per-psp_account outbound rate limiting, applied to every
-  // adapter this registry resolves.
+
   const rateLimiter = createOutboundRateLimiter(redis);
   const pspAdapterRegistry = new PspAdapterRegistry(config, declineMaps, rateLimiter);
 
   const workflowEngine = new HatchetWorkflowEngine(config, logger);
-  // The API process only *dispatches* tasks; it registers definitions so
-  // dispatch() can resolve concurrency keys, but does not run start()
-  // (that's the worker process's job — see src/worker.ts). Registering
-  // here without starting avoids a second consumer of the same queue.
+
   workflowEngine.registerTask(helloWorldTask);
   workflowEngine.registerTask(
     createWebhookNormalizeTask({ db, registry: pspAdapterRegistry, engine: workflowEngine }),

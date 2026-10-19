@@ -15,10 +15,6 @@ export function registerCustomersRoutes(app: FastifyInstance, deps: CustomersRou
       const auth = request.auth!;
       const { id } = request.params as { id: string };
 
-      // Scoped by merchant_entity_id, not product_id: payment methods are
-      // shared across every product under the same legal entity (a
-      // customer who bought Product A can reuse the same card for
-      // Product B), unlike payments which belong to exactly one product.
       const customer = await deps.db
         .selectFrom('customers')
         .select('id')

@@ -14,11 +14,6 @@ import { cn } from "@/lib/utils";
 import { WORKFLOW_ACTION_LABELS, WORKFLOW_ACTION_TYPES, type WorkflowActionType } from "@/lib/types";
 import type { NewNodeSeed } from "@/lib/workflow-store";
 
-/** Dragging payload carried on `dataTransfer` — a JSON-encoded
- *  NewNodeSeed, read back out in canvas.tsx's onDrop. Matches the
- *  real client's native HTML5 drag-and-drop sidebar palette
- *  (canvas/element/sidebar/draggable-node) rather than a click-driven
- *  picker. */
 export const WORKFLOW_DRAG_MIME = "application/x-workflow-node";
 
 const ACTION_ICONS: Record<WorkflowActionType, React.ReactNode> = {
@@ -49,13 +44,6 @@ function DraggableNodeCard({ title, icon, seed }: { title: string; icon: React.R
   );
 }
 
-/**
- * Left-hand node palette — the real client's canvas-sidebar.component.
- * tsx: drag any card onto the canvas to drop an unconnected node at
- * that position (wire it up afterward with the hover "+" handles or
- * by drawing a connection). Hidden entirely in narrower viewports,
- * same breakpoint behavior as the real client's `max-sm:hidden`.
- */
 export function CanvasSidebarComponent() {
   return (
     <div className="hidden h-full w-52 shrink-0 flex-col gap-4 overflow-y-auto border-r border-border bg-muted/50 p-2.5 sm:flex">

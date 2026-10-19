@@ -1,25 +1,3 @@
-# Local dev stack: postgres, redis, hatchet, api, worker (per SPEC.md).
-#
-# NOTE ON HATCHET: this uses the `hatchet-lite` image (single container,
-# bundles engine + API + dashboard), which is what Hatchet recommends for
-# dev/low-volume use — see docs/runbooks/hatchet-setup.md for the
-# production-grade multi-container alternative (separate engine/
-# dashboard/migration/setup-config services + RabbitMQ) if this ever needs
-# to look more like prod. Reference:
-# https://docs.hatchet.run/self-hosting/hatchet-lite
-#
-# ONE-TIME SETUP: hatchet-lite needs a per-tenant API token before the api/
-# worker containers can authenticate. Run `make hatchet-token` after first
-# `make dev` boot and paste the result into `.env` as
-# HATCHET_CLIENT_TOKEN, then restart api/worker. See docs/runbooks/
-# hatchet-setup.md.
-#
-# This file has been validated for YAML correctness and cross-checked
-# against Hatchet's published hatchet-lite compose reference, but has NOT
-# been run end-to-end (this was authored in a sandbox without a Docker
-# daemon) — verify with `make dev` before relying on it. See the
-# Milestone 0 summary for details.
-
 name: payment-orchestrator
 
 services:
@@ -70,9 +48,6 @@ services:
       SERVER_AUTH_COOKIE_INSECURE: 't'
       SERVER_GRPC_BIND_ADDRESS: '0.0.0.0'
       SERVER_GRPC_INSECURE: 't'
-      # Other containers reach hatchet via the compose network hostname;
-      # host-side tooling (e.g. `hatchet-admin` run from your laptop)
-      # would need `localhost` instead — see docs/runbooks/hatchet-setup.md.
       SERVER_GRPC_BROADCAST_ADDRESS: 'hatchet:7077'
       SERVER_GRPC_PORT: '7077'
       SERVER_URL: 'http://localhost:8888'

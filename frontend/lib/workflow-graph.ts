@@ -2,34 +2,10 @@ import ELK from "elkjs/lib/elk.bundled.js";
 import type { Edge, Node } from "@xyflow/react";
 import type { Workflow, WorkflowNode } from "./types";
 
-/**
- * Converts a workflow's real node graph (`nodes[]` + `edges[]`) into a
- * React Flow graph — matching the real client's own canvas exactly: a
- * Condition node's blocks and a Split node's branches can each route
- * to a different downstream node (via `edge.sourceHandle`), not just
- * a single linear chain. This replaces the earlier "array order
- * implies a chain, plus a trailing addNode placeholder" model — there
- * is no addNode node type anymore; extending the canvas happens via
- * each node's own hover "+" handles (components/workflow/add-handle.tsx)
- * or by dragging a card in from the sidebar palette
- * (components/workflow/canvas-sidebar.tsx), exactly like the real
- * client.
- *
- * Positions are computed with elkjs's layered algorithm (same library
- * the real client's own workflow-layout.service.ts wraps dagre with —
- * elk's layered algorithm is the direct equivalent) rather than a
- * hardcoded grid, since the graph can now genuinely branch and merge.
- */
-
 const elk = new ELK();
 
-// Base card width, matching the real client's compact ~224px cards
-// (see components/workflow/nodes.tsx's CARD_WIDTH) rather than this
-// demo's old full-width 320px inline-config cards.
 const CARD_WIDTH = 232;
-// Condition/Split cards grow wider as blocks/branches are added — same
-// per-block sizing the real client uses (190-195px per block + gap),
-// scaled down slightly to match CARD_WIDTH's own proportions.
+
 const BLOCK_WIDTH = 168;
 const BLOCK_GAP = 8;
 const CARD_PADDING_X = 24;
@@ -58,10 +34,7 @@ function heightForNode(node: WorkflowNode): number {
         case "delay":
           return 96;
         default:
-          // settle_payment / block_payment — header only, no content,
-          // matching the real client's payment-capture/payment-decline
-          // cards (getNodeBaseSizes: height 41-ish once scaled to our
-          // header size).
+
           return 52;
       }
   }
@@ -74,19 +47,6 @@ const ELK_LAYOUT_OPTIONS = {
   "elk.spacing.nodeNode": "60",
 };
 
-/**
- * A Condition/Split card renders one real Handle per block/branch, laid
- * out left-to-right in a fixed visual order (nodes.tsx). Left as a single
- * unlabeled port per node (the old behavior), elk has no idea "EU issuers"
- * exits from the left half of the card and "Rest of world" from the right
- * half — it collapses every outgoing edge from a node onto one point, so
- * its own crossing-minimization pass can't tell that swapping two sibling
- * nodes below would actually uncross the lines. Declaring one elk port per
- * handle, positioned at that handle's real x offset, fixes that: elk can
- * now see which child is wired to the left port vs. the right port and
- * reorder siblings within a layer to avoid the crossing, exactly like the
- * real client's own dagre layout keeps handle identity per edge.
- */
 function sourceHandleIds(node: WorkflowNode): (string | undefined)[] {
   if (node.kind === "condition") return (node.conditions ?? []).map((b) => b.id);
   if (node.kind === "split") return (node.splits ?? []).map((b) => b.id);
@@ -105,11 +65,6 @@ function targetPortId(nodeId: string): string {
   return `${nodeId}__tgt`;
 }
 
-/** x offset (from the node's left edge) of a block/branch's own handle —
- *  mirrors nodes.tsx's block layout (BLOCK_WIDTH-wide cards, BLOCK_GAP
- *  apart, centered as a group inside the card) closely enough for elk's
- *  ordering purposes; a plain trigger/action node has just the one
- *  centered handle. */
 function sourcePortX(index: number, total: number, width: number): number {
   if (total <= 1) return width / 2;
   const contentWidth = total * BLOCK_WIDTH + (total - 1) * BLOCK_GAP;
@@ -117,20 +72,13 @@ function sourcePortX(index: number, total: number, width: number): number {
   return leftPad + index * (BLOCK_WIDTH + BLOCK_GAP) + BLOCK_WIDTH / 2;
 }
 
-/** Shared by the elk-laid-out path below and canvas.tsx's own
- *  no-relayout sync path, so both ever describe "workflowEdge" the same
- *  way in exactly one place. */
 export function buildEdges(workflow: Workflow): Edge[] {
   return workflow.edges.map((edge) => ({
     id: edge.id,
     source: edge.source,
     sourceHandle: edge.sourceHandle,
     target: edge.target,
-    // "workflowEdge" (components/workflow/canvas-edge.tsx) draws the
-    // same bezier curve React Flow's built-in "default" type would
-    // (via getBezierPath, matching the real client's
-    // CanvasEdgeComponent) but adds a hover-only "×" to delete the
-    // connection.
+
     type: "workflowEdge",
     animated: true,
     data: { workflowId: workflow.id },
@@ -160,10 +108,7 @@ export async function buildWorkflowGraph(
         id: node.id,
         width,
         height,
-        // FIXED_POS pins every port at the exact offset we hand it —
-        // matching nodes.tsx's real handle positions is what lets elk's
-        // crossing minimization reorder sibling nodes correctly (see the
-        // doc comment above sourceHandleIds).
+
         layoutOptions: { "elk.portConstraints": "FIXED_POS" },
         ports: [
           { id: targetPortId(node.id), x: width / 2, y: 0, width: 1, height: 1, layoutOptions: { "elk.port.side": "NORTH" } },
