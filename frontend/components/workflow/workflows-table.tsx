@@ -15,18 +15,6 @@ import { useWorkflowStore } from "@/lib/workflow-store";
 import { PAYMENT_METHOD_LABELS, type Workflow } from "@/lib/types";
 import { cn, formatDateTime } from "@/lib/utils";
 
-/**
- * Mirrors the real client's workflows-list.component.tsx: a table with
- * name / status / version / runs / last-updated columns plus a
- * trailing link column, rows clickable through to the workflow's own
- * detail page. This mock model has no `version`/`runs` counters on
- * Workflow itself (lib/types.ts), so both are derived deterministically
- * from data already on the workflow (node count for version, a stable
- * hash of the id for runs) rather than invented as separate random
- * fields — same "derive, don't fabricate a parallel field" approach
- * the real column defs take with `item?.runs` linking back to the
- * workflow's own run history.
- */
 function versionFor(workflow: Workflow): string {
   return `v${workflow.nodes.length}`;
 }

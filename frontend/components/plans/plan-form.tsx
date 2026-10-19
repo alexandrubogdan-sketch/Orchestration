@@ -61,12 +61,6 @@ function emptyPlan(): Omit<Plan, "id" | "createdAt" | "updatedAt"> {
   };
 }
 
-/**
- * Create/edit form for a Plan — a base ("all countries") price plus any
- * number of per-country/currency override rules, an optional billing
- * interval (hidden for one-off plans), an optional trial with its own
- * price + interval + override rules, and a tax-collection selector.
- */
 export function PlanForm({
   initial,
   onSave,
@@ -426,14 +420,6 @@ function PriceRowsEditor({
   );
 }
 
-/**
- * Editor for PriceOverrideRule rows — each rule is one currency + amount
- * applied to a *multi-select list* of countries (unlike PriceRowsEditor
- * above, which is one country per row). The country multi-select is a
- * plain native <select multiple>, matching this project's convention of
- * using native form controls wrapped in the shared Select styling rather
- * than a bespoke combobox.
- */
 function RuleRowsEditor({
   rules,
   onUpdate,

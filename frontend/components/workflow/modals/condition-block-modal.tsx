@@ -19,12 +19,6 @@ import {
   type WorkflowConditionBlock,
 } from "@/lib/types";
 
-/**
- * Edits a single Condition block — opened from that block's own
- * popover "Edit" action (see nodes.tsx's ConditionBlockCard), matching
- * the real client's move of condition config into a modal
- * (EModalType.CONDITION) instead of inline fields on the canvas card.
- */
 export function ConditionBlockModal({
   block,
   onSave,

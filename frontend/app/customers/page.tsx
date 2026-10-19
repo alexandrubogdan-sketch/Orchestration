@@ -8,12 +8,6 @@ import { useEnvironmentStore } from "@/lib/environment-store";
 import { fetchLiveCustomers, type LiveCustomer } from "@/lib/live-api";
 import { getMockCustomers } from "@/lib/mock-data";
 
-/** Client component (was a Server Component) so it can read the
- *  sidebar's Sandbox/Live toggle and, in Live mode, fetch real data
- *  from this app's own /api/customers proxy (backed by backend-go's
- *  GET /v1/customers — added 2026-07-07 specifically for this page,
- *  see payment-orchestrator-go/internal/api/customers.go) instead of
- *  lib/mock-data.ts. Sandbox behavior is unchanged. */
 export default function CustomersPage() {
   const environment = useEnvironmentStore((s) => s.environment);
   const [liveStatus, setLiveStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -24,8 +18,6 @@ export default function CustomersPage() {
     if (environment !== "live") return;
     let cancelled = false;
 
-    // Deliberately no synchronous setLiveStatus("loading") here — see
-    // the identical note in app/payments/page.tsx's own effect.
     fetchLiveCustomers()
       .then((res) => {
         if (cancelled) return;

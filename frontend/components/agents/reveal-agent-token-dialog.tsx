@@ -16,11 +16,6 @@ import {
 } from "@/components/ui/dialog";
 import type { AgentToken } from "@/lib/agent-tokens";
 
-/** Shown exactly once, immediately after POST /api/agent-tokens
- *  succeeds — token.token (the raw secret) is never returned by any
- *  other call, so this is the only chance to see/copy it. Also doubles
- *  as the setup guide: the exact JSON block Claude Desktop (or any
- *  other Streamable-HTTP-speaking MCP client) needs to connect. */
 export function RevealAgentTokenDialog({ token, mcpUrl, onClose }: { token: AgentToken; mcpUrl: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
 

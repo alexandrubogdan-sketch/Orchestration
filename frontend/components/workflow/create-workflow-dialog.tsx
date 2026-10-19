@@ -9,12 +9,6 @@ import { useWorkflowStore } from "@/lib/workflow-store";
 import { PAYMENT_METHOD_LABELS, PAYMENT_METHOD_TYPES, type PaymentMethodType } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-/**
- * docs.paynext.com/guides/platform/workflows: "Each payment method can
- * only have one workflow. To route Cards and Apple Pay differently,
- * create separate workflows — one for each payment method." Payment
- * methods that already have a workflow are disabled here to match.
- */
 export function CreateWorkflowDialog({ onClose }: { onClose: () => void }) {
   const router = useRouter();
   const workflows = useWorkflowStore((s) => s.workflows);

@@ -12,13 +12,6 @@ import { formatDateTime, formatMoney } from "@/lib/utils";
 
 const KNOWN_STATES = new Set<string>(PAYMENT_STATES);
 
-/** Live-mode payments table — deliberately a separate, narrower
- *  component from components/payments/payments-table.tsx rather than
- *  reusing it: that table's Payment type requires fields
- *  (merchantEntity, product, customerEmail, pspAccount) the real
- *  backend's PaymentDTO doesn't return. Renders exactly what
- *  GET /v1/payments actually gives back — raw customerId/productId,
- *  no enrichment — rather than fabricating the missing columns. */
 export function LivePaymentsTable({ payments }: { payments: LivePayment[] }) {
   const [search, setSearch] = useState("");
 

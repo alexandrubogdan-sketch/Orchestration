@@ -11,13 +11,6 @@ import { WorkflowsTable } from "@/components/workflow/workflows-table";
 import { WorkflowsTabs, type WorkflowsTab } from "@/components/workflow/workflows-tabs";
 import { useWorkflowStore } from "@/lib/workflow-store";
 
-/**
- * Structured after the real client's workflows.module.tsx: a top bar,
- * then a tab strip (Workflows | Lists) with a trailing Create action,
- * then whichever table the active tab selects. See workflows-table.tsx
- * and lists-table.tsx for the two tables, and workflows-tabs.tsx for
- * the tab strip itself.
- */
 export default function WorkflowsPage() {
   const workflows = useWorkflowStore((s) => s.workflows);
   const [activeTab, setActiveTab] = useState<WorkflowsTab>("workflows");

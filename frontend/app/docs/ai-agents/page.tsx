@@ -27,8 +27,12 @@ export default function AiAgentsDocsPage() {
         description="A live Model Context Protocol server that lets Claude — or any other MCP-speaking client — research and act on this merchant's own payments, customers, and subscriptions."
       />
 
+      <Callout tone="info" title="Availability" className="mb-10">
+        {"The MCP server currently authenticates with agent tokens served by the checkout-session service that is being moved into the main API. Scoped API keys from Developers will replace agent tokens; until then this works in Sandbox only."}
+      </Callout>
+
       <Callout tone="info" title="A real backend, not a demo" className="mb-8">
-        Every tool call below is a genuine authenticated request to backend-go&apos;s <code className="font-mono">/v1/*</code>{" "}
+        Every tool call below is a genuine authenticated request to the API&apos;s <code className="font-mono">/v1/*</code>{" "}
         API — the same routes the rest of this dashboard and the Checkout SDK use. There is no separate mock path for
         MCP: a read/write agent token can really capture, void, refund, or cancel.
       </Callout>
@@ -44,10 +48,10 @@ export default function AiAgentsDocsPage() {
         </p>
         <CodeBlock label="MCP endpoint">POST https://&lt;your-deployment&gt;/api/mcp</CodeBlock>
         <p className="mt-4 mb-3 text-sm leading-relaxed text-muted-foreground">
-          Every tool call carries the MCP client&apos;s own Bearer agent token straight through to backend-go — this
+          Every tool call carries the MCP client&apos;s own Bearer agent token straight through to the API — this
           route does not hold or inject the dashboard&apos;s master API token the way every other{" "}
           <code className="font-mono">app/api/*</code> proxy route does (see{" "}
-          <code className="font-mono">lib/mcp/backend-client.ts</code>). backend-go is the only place that ever
+          <code className="font-mono">lib/mcp/backend-client.ts</code>). the API is the only place that ever
           decides whether a token is valid and what it&apos;s allowed to do:
         </p>
         <ol className="list-decimal space-y-1.5 pl-5 text-sm text-muted-foreground">
@@ -56,19 +60,19 @@ export default function AiAgentsDocsPage() {
             <code className="font-mono">Authorization: Bearer &lt;agent token&gt;</code>.
           </li>
           <li>
-            <strong className="text-foreground">This route → backend-go.</strong> The same Bearer token is forwarded
+            <strong className="text-foreground">This route → the API.</strong> The same Bearer token is forwarded
             unchanged to the relevant <code className="font-mono">/v1/*</code> route.
           </li>
           <li>
-            <strong className="text-foreground">backend-go decides.</strong> Its existing auth middleware resolves
+            <strong className="text-foreground">the API decides.</strong> Its existing auth middleware resolves
             the token to a product/merchant entity and a scope (<code className="font-mono">read_only</code> /{" "}
             <code className="font-mono">read_write</code>); every mutating handler additionally calls{" "}
             <code className="font-mono">RequireWriteScope</code>, which 403s a read_only token before touching
             anything.
           </li>
           <li>
-            <strong className="text-foreground">Result flows back verbatim.</strong> A 401/403/404 from backend-go
-            becomes an <code className="font-mono">isError</code> tool result with backend-go&apos;s own RFC 7807
+            <strong className="text-foreground">Result flows back verbatim.</strong> A 401/403/404 from the API
+            becomes an <code className="font-mono">isError</code> tool result with the API&apos;s own RFC 7807
             problem+json body inlined, so the calling model sees exactly why a call failed.
           </li>
         </ol>
@@ -104,7 +108,7 @@ export default function AiAgentsDocsPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="text-sm text-muted-foreground">
-              Can list/inspect freely, but every mutating tool call gets a 403 from backend-go&apos;s{" "}
+              Can list/inspect freely, but every mutating tool call gets a 403 from the API&apos;s{" "}
               <code className="font-mono">RequireWriteScope</code>. Give this to a research or triage agent that
               should never take action on its own.
             </CardContent>
@@ -182,7 +186,7 @@ export default function AiAgentsDocsPage() {
 
       <Callout tone="tip" title="Idempotency, handled for you">
         <code className="font-mono">capture_payment</code>, <code className="font-mono">void_payment</code>, and{" "}
-        <code className="font-mono">refund_payment</code> all call backend-go routes that require an{" "}
+        <code className="font-mono">refund_payment</code> all call the API routes that require an{" "}
         <code className="font-mono">Idempotency-Key</code> header. The MCP server generates a fresh one for every
         call — a model retrying a failed tool call gets a clean second attempt rather than an idempotency conflict,
         and there is no key for the calling model to manage.
@@ -194,7 +198,7 @@ export default function AiAgentsDocsPage() {
           Auth here is a static Bearer token, not the MCP spec&apos;s OAuth 2.1 authorization flow — appropriate for
           a merchant issuing tokens to its own agents from its own dashboard, but not a fit for a public,
           multi-tenant MCP directory where a third party&apos;s client would need to complete a consent flow. There
-          is also no per-tool-call audit trail distinct from backend-go&apos;s existing request logging — a call
+          is also no per-tool-call audit trail distinct from the API&apos;s existing request logging — a call
           from an MCP agent looks the same in the logs as any other Bearer-authenticated API call, distinguished only
           by which token was used.
         </p>

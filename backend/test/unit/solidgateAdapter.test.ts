@@ -27,7 +27,6 @@ interface FetchCallInit {
   body?: string;
 }
 
-/** A `vi.fn()` whose implementation gives `.mock.calls` a concrete, non-`any` type. */
 function createFetchMock(response: Response) {
   return vi.fn((_url: string | URL | Request, _init?: FetchCallInit) => Promise.resolve(response));
 }
@@ -36,14 +35,6 @@ function createFailingFetchMock(error: Error) {
   return vi.fn((_url: string | URL | Request, _init?: FetchCallInit) => Promise.reject(error));
 }
 
-/**
- * `fetch`'s real type signature (overloaded, `HeadersInit`/`BodyInit`
- * unions) fights unproductively with a narrowly-typed mock when
- * assigned structurally under `exactOptionalPropertyTypes`. The mock
- * itself (`createFetchMock`) is still fully typed for `.mock.calls`
- * inspection above — this cast only widens it back to `typeof fetch`
- * at the one point it's handed to `SolidgateAdapterOptions`.
- */
 function asFetch(
   mock: ReturnType<typeof createFetchMock> | ReturnType<typeof createFailingFetchMock>,
 ): typeof fetch {
@@ -93,8 +84,6 @@ describe('SolidgateAdapter — T8.5', () => {
       payment_type: '1-click',
     });
 
-    // The signature must match what an independent computation over the
-    // exact same body/keys produces.
     const expectedHeaders = buildSolidgateAuthHeaders(
       credentials.publicKey,
       credentials.secretKey,

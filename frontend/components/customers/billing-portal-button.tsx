@@ -5,16 +5,6 @@ import { ExternalLink, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
-/** "Manage billing" button (Stripe integration audit, 2026-07-12, Task
- *  #318) — POSTs to /api/customers/[id]/billing-portal-session (which
- *  proxies to backend-go's POST /v1/customers/{id}/billing-portal-
- *  session), then redirects the browser to the returned Stripe Billing
- *  Portal URL. Renders inline error text rather than a toast/modal —
- *  this repo has no global toast system wired up yet, and the two most
- *  likely failures (no live backend configured yet in Sandbox mode; this
- *  particular customer has no Stripe customer reference on file) are
- *  both perfectly explainable in a sentence next to the button itself.
- */
 export function BillingPortalButton({ customerId }: { customerId: string }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -3,14 +3,6 @@ import type { PspAdapterRegistry } from '../../adapters/registry.js';
 import { applyAccountUpdate } from '../../paymentMethods/applyAccountUpdate.js';
 import type { TaskDefinition } from '../engine.js';
 
-/**
- * T8.3: pulls every enabled `psp_account`'s account-updater
- * notifications (`adapter.listAccountUpdates`) and applies them.
- * Mirrors T6.2's settlement-ingestion cron shape — same fixed
- * look-back window rationale (idempotent either way; see that file's
- * docblock), same per-psp_account loop with per-account error
- * isolation.
- */
 export interface AccountUpdateIngestionInput {
   sinceHours?: number;
 }

@@ -9,19 +9,6 @@ import { createDb } from '../../src/db/client.js';
 import { PspAdapterRegistry, loadDeclineMaps } from '../../src/adapters/registry.js';
 import type { WorkflowEngine } from '../../src/workflow/engine.js';
 
-/**
- * Integration test per SPEC.md: "Never mock away Postgres in integration
- * tests — use real containers." This connects to the real Postgres/Redis
- * started by `docker-compose.yml` (or the service containers CI spins up
- * — see .github/workflows/ci.yml) via DATABASE_URL/REDIS_URL. It does not
- * touch Hatchet — the dispatch round-trip is verified manually per
- * docs/runbooks/hatchet-setup.md, since hatchet-lite needs an interactive
- * one-time token step that doesn't fit a CI service-container model yet.
- *
- * Requires: DATABASE_URL and REDIS_URL pointing at reachable instances.
- * Run via `make test-integration` (docs/README) after `make dev`, or let
- * CI run it against the postgres/redis service containers.
- */
 class NoopWorkflowEngine implements WorkflowEngine {
   registerTask(): void {}
   async dispatch(): Promise<void> {}

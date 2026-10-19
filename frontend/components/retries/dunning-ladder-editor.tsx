@@ -5,23 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useRetrySettingsStore } from "@/lib/retry-settings-store";
 
-/**
- * The dunning ladder as an editable ordered list of "wait N hours, then
- * retry" steps — add/remove/reorder, matching the Plans price-rows
- * editor's own row-editing UX (components/plans/plan-form.tsx: one row
- * per entry, an Input per editable field, a trailing Trash2 remove
- * button, an "Add X" button below the list with the same Plus-icon +
- * outline-button styling) rather than inventing a new list-editing
- * pattern for this one page.
- *
- * Reordering has no equivalent in the Plans price-rows editor (price
- * rows are unordered — order doesn't matter there), so the up/down
- * arrow buttons are new here, but ARE the same interaction the
- * workflow canvas's own node chain relies on implicitly (nodes[1..] run
- * in array order) — surfaced explicitly here since a dunning ladder's
- * order is the entire point of the feature (24h then 72h then 168h is
- * a materially different policy than 168h then 72h then 24h).
- */
 export function DunningLadderEditor() {
   const ladder = useRetrySettingsStore((s) => s.policy.ladder);
   const addLadderStep = useRetrySettingsStore((s) => s.addLadderStep);

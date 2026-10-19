@@ -6,11 +6,6 @@ export interface CodeBlockProps {
   className?: string;
 }
 
-/**
- * Plain, dependency-free code block (no syntax highlighter) for JSON /
- * type shapes / shell snippets in the docs section. Styled with the same
- * card/border tokens as the rest of the app rather than a separate theme.
- */
 export function CodeBlock({ children, label, className }: CodeBlockProps) {
   return (
     <div className={cn("overflow-hidden rounded-lg border border-border bg-neutral-bg", className)}>

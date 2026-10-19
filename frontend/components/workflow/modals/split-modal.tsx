@@ -20,13 +20,6 @@ function randomId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-/**
- * Manages a Split node's branches — add/rename/remove/reweight. The
- * real client edits Split branches through a modal too (EModalType.
- * SPLIT) rather than inline on the canvas card, which only ever
- * displays each branch's label + percentage + progress bar
- * (split-node-content.component.tsx).
- */
 export function SplitModal({
   branches,
   onSave,

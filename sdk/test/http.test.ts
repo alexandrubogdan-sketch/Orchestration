@@ -27,7 +27,9 @@ describe("CheckoutHttpClient.getPublicConfig", () => {
       psp: "mock",
       publicConfig: { psp: "mock", publishableKey: "pk_test" },
     };
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, publicConfig));
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, publicConfig));
     const client = new CheckoutHttpClient({
       apiBaseUrl: "https://api.example.com",
       sessionId: "cs_1",
@@ -38,15 +40,16 @@ describe("CheckoutHttpClient.getPublicConfig", () => {
     const result = await client.getPublicConfig();
     expect(result).toEqual(publicConfig);
 
-    // Stripe integration audit, Task #321e: the clientSecret must travel
-    // via the X-Checkout-Session-Secret header, never the URL query
-    // string (query strings leak into access logs, browser history, and
-    // Referer headers).
-    const [calledUrl, calledInit] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const [calledUrl, calledInit] = fetchImpl.mock.calls[0] as [
+      string,
+      RequestInit,
+    ];
     expect(calledUrl).toBe("https://api.example.com/checkout/cs_1/public");
     expect(calledUrl).not.toContain("clientSecret");
     expect(calledInit.method).toBe("GET");
-    expect(new Headers(calledInit.headers).get("X-Checkout-Session-Secret")).toBe("secret_1");
+    expect(
+      new Headers(calledInit.headers).get("X-Checkout-Session-Secret"),
+    ).toBe("secret_1");
   });
 
   it("throws CheckoutSessionNotFoundError on 404", async () => {
@@ -58,7 +61,9 @@ describe("CheckoutHttpClient.getPublicConfig", () => {
       fetchImpl,
     });
 
-    await expect(client.getPublicConfig()).rejects.toBeInstanceOf(CheckoutSessionNotFoundError);
+    await expect(client.getPublicConfig()).rejects.toBeInstanceOf(
+      CheckoutSessionNotFoundError,
+    );
   });
 
   it("throws CheckoutSessionClosedError on 410", async () => {
@@ -70,7 +75,9 @@ describe("CheckoutHttpClient.getPublicConfig", () => {
       fetchImpl,
     });
 
-    await expect(client.getPublicConfig()).rejects.toBeInstanceOf(CheckoutSessionClosedError);
+    await expect(client.getPublicConfig()).rejects.toBeInstanceOf(
+      CheckoutSessionClosedError,
+    );
   });
 
   it("throws a generic CheckoutApiError for other failure statuses", async () => {
@@ -100,7 +107,9 @@ describe("CheckoutHttpClient.confirm", () => {
       createdAt: "2026-07-07T00:00:00Z",
       updatedAt: "2026-07-07T00:00:01Z",
     };
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, confirmResponse));
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, confirmResponse));
     const client = new CheckoutHttpClient({
       apiBaseUrl: "https://api.example.com",
       sessionId: "cs_1",
@@ -119,7 +128,9 @@ describe("CheckoutHttpClient.confirm", () => {
   });
 
   it("throws CheckoutSessionClosedError on 410 (already consumed)", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(textResponse(410, "already consumed"));
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(textResponse(410, "already consumed"));
     const client = new CheckoutHttpClient({
       apiBaseUrl: "https://api.example.com",
       sessionId: "cs_1",
@@ -127,6 +138,8 @@ describe("CheckoutHttpClient.confirm", () => {
       fetchImpl,
     });
 
-    await expect(client.confirm("pm_mock_abc")).rejects.toBeInstanceOf(CheckoutSessionClosedError);
+    await expect(client.confirm("pm_mock_abc")).rejects.toBeInstanceOf(
+      CheckoutSessionClosedError,
+    );
   });
 });

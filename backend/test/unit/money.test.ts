@@ -26,7 +26,6 @@ describe('makeMoney', () => {
     expect(makeMoney(100, 'usd').currency).toBe('USD');
   });
 
-  // Non-negotiable #1: "Any float in a money path is a bug."
   it.each([19.99, 0.1, 100.5, NaN, Infinity, -Infinity])(
     'rejects non-integer minorUnits: %p',
     (bad) => {
@@ -110,7 +109,7 @@ describe('allocate', () => {
     const shares = allocate(makeMoney(100, 'USD'), [1, 1, 1]);
     const total = shares.reduce((sum, s) => sum + s.minorUnits, 0);
     expect(total).toBe(100);
-    // 100/3 -> floor(33.33) = 33, 33, and the remainder (34) goes to the last share.
+
     expect(shares.map((s) => s.minorUnits)).toEqual([33, 33, 34]);
   });
 
@@ -129,8 +128,6 @@ describe('allocate', () => {
     expect(() => allocate(makeMoney(100, 'USD'), [0, 0])).toThrow(InvalidMoneyError);
   });
 
-  // Property-style exhaustive check: for many random weight sets, the
-  // shares must always sum back to the original total exactly.
   it('always sums back to the original amount across many weight combinations', () => {
     for (let trial = 0; trial < 200; trial++) {
       const totalMinor = Math.floor(Math.random() * 100_000) + 1;

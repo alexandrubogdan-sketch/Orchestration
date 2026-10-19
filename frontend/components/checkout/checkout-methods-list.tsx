@@ -5,21 +5,6 @@ import { isCheckoutMethodInvalid } from "@/lib/mock-data";
 import { useCheckoutStore } from "@/lib/checkout-store";
 import { CheckoutMethodsListItem } from "./methods-list-item";
 
-/**
- * Active / Inactive methods list — structurally mirrors the real
- * client's checkout-methods-list.component.tsx: an "Active" section
- * with a drag-to-reorder framer-motion `Reorder.Group` for the
- * unlocked active methods, any locked active methods (Card) rendered
- * statically below (not reorderable), then an "Inactive" section (or
- * a muted empty-state line).
- *
- * Dependency choice: framer-motion's `Reorder` was NOT already a
- * dependency in this frontend — added it (small, well-maintained, and
- * it's exactly the drag-reorder primitive the real client itself
- * uses) rather than hand-rolling an equivalent pointer-based reorder
- * interaction, since matching the real interaction feel 1:1 was an
- * explicit goal here.
- */
 export function CheckoutMethodsList() {
   const methods = useCheckoutStore((s) => s.methods);
   const selectedMethodId = useCheckoutStore((s) => s.selectedMethodId);

@@ -1,16 +1,3 @@
-/**
- * Milestone 4, T4.1: "Service auth: per-product API tokens (hashed at
- * rest), scoping product_id/entity_id; audit log of admin calls."
- *
- * `token_hash` is a SHA-256 hex digest, never the raw token (raw tokens
- * are shown to the caller exactly once, at creation — see
- * scripts/seed.ts and src/api/auth.ts). `entity_id` is denormalized
- * from the product's own merchant_entity_id at token-creation time
- * rather than joined on every request — a token is scoped to whichever
- * entity its product belonged to when issued, which is deliberately
- * stable even if a product were ever reassigned.
- */
-
 exports.shorthands = undefined;
 
 exports.up = (pgm) => {

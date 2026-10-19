@@ -1,15 +1,3 @@
-/**
- * T3.4 admin command: `make replay-webhook id=<webhook_inbox.id>`.
- * Resets the row to 'pending' (attempts=0) and re-dispatches
- * webhook.normalize through the real Hatchet engine — the same code
- * path a live webhook takes, not a special-cased shortcut, so a replay
- * behaves identically to the original delivery would have.
- *
- * Use this for: a row stuck in 'dlq' after a bug fix, or a row that
- * failed for a transient reason (e.g. a brief DB outage) past its
- * automatic retry budget (MAX_WEBHOOK_ATTEMPTS,
- * src/webhooks/inboxAttempts.ts).
- */
 import { loadConfig } from '../src/config/index.js';
 import { createLogger } from '../src/observability/logger.js';
 import { createPostgresPool } from '../src/infra/postgres.js';
@@ -57,9 +45,6 @@ async function main() {
     engine.registerTask(createWebhookNormalizeTask({ db, registry, engine }));
     engine.registerTask(createWebhookApplyTask({ db }));
 
-    // A fresh dispatch key (not the inbox id) so this doesn't collide
-    // with whatever key the original delivery already used at the
-    // workflow-engine level.
     await engine.dispatch(
       'webhook.normalize',
       { inboxId },

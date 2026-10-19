@@ -1,4 +1,3 @@
-// @ts-check
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 
@@ -22,10 +21,6 @@ export default tseslint.config(
     },
   },
   {
-    // *.bundled_*.mjs and *.timestamp-*.mjs are transient cache files
-    // tsup/vitest write next to their config files during a run and
-    // normally delete afterward — they're build tool internals, never
-    // checked in, never part of this package's source.
     ignores: [
       "dist/**",
       "node_modules/**",

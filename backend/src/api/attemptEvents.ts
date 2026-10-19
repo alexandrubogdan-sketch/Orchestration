@@ -1,18 +1,6 @@
 import type { AttemptResult } from '../adapters/types.js';
 import type { CanonicalEvent } from '../domain/stateMachine.js';
 
-/**
- * Maps a synchronous `AttemptResult` (from `adapter.createPayment`/
- * `capture`/`void`) to the canonical event(s) needed to walk the state
- * machine there from the payment's current state — the API-response
- * counterpart to what an async webhook does via `normalizeEvent`
- * (Milestone 3). Both paths ultimately call
- * `applyCanonicalEvents`/`transition()`, so a payment created via a
- * synchronous PSP response and one confirmed later via webhook end up
- * in the exact same place through the exact same law (Non-negotiable
- * #5) — this module just describes what the FIRST synchronous
- * response, specifically, implies.
- */
 export function initialAttemptEvents(result: AttemptResult): CanonicalEvent[] {
   if (result.status === 'requires_action') {
     return [{ type: 'authentication_required' }];
@@ -33,8 +21,6 @@ export function initialAttemptEvents(result: AttemptResult): CanonicalEvent[] {
       events.push({ type: 'authorization_failed' });
       break;
     default:
-      // 'pending': the payment sits in 'authorizing' awaiting a webhook
-      // (Milestone 3) or a gap-detection poll (T3.5) to move it further.
       break;
   }
   return events;

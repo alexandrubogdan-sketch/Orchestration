@@ -15,10 +15,6 @@ import { Input, Select } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { AgentToken } from "@/lib/agent-tokens";
 
-/** Create dialog for a new MCP agent token — description + scope only;
- *  product/merchant scoping comes from the server-side proxy's own
- *  master token (see app/api/agent-tokens/route.ts), never from this
- *  form, so a caller can't request a token for someone else's product. */
 export function CreateAgentTokenDialog({
   onCreated,
   onClose,

@@ -1,238 +1,115 @@
-import { DocsHeader } from "@/components/docs/docs-header";
-import { Callout } from "@/components/docs/callout";
-import { CodeBlock } from "@/components/docs/code-block";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import Link from "next/link";
 
-export default function PaymentsDocsPage() {
+import { Callout } from "@/components/docs/callout";
+import { CodeTabs } from "@/components/docs/code-tabs";
+import { DocsHeader } from "@/components/docs/docs-header";
+import { DocSection, InlineCode } from "@/components/docs/prose";
+
+const STATES = [
+  { state: "created", meaning: "Recorded, not yet sent to a processor.", final: false },
+  { state: "requires_action", meaning: "Waiting for the customer to finish 3-D Secure.", final: false },
+  { state: "authorizing", meaning: "The processor is deciding.", final: false },
+  { state: "authorized", meaning: "Funds reserved. Capture or void it.", final: false },
+  { state: "capturing", meaning: "Capture requested, waiting for the processor.", final: false },
+  { state: "captured", meaning: "Money taken. Fulfil the order.", final: false },
+  { state: "refund_pending", meaning: "A refund is in progress.", final: false },
+  { state: "refunded", meaning: "Fully refunded. Partial refunds can still follow.", final: false },
+  { state: "settled", meaning: "Paid out by the processor. Can still be disputed.", final: false },
+  { state: "dispute_opened", meaning: "The cardholder raised a chargeback.", final: false },
+  { state: "dispute_won", meaning: "The chargeback was resolved in your favour.", final: true },
+  { state: "dispute_lost", meaning: "The chargeback was lost.", final: true },
+  { state: "declined", meaning: "The processor refused the payment.", final: true },
+  { state: "voided", meaning: "The authorization was released.", final: true },
+  { state: "failed", meaning: "A technical failure ended the payment.", final: true },
+];
+
+export default function PaymentLifecyclePage() {
   return (
     <div>
       <DocsHeader
-        eyebrow="Core payments"
-        title="Payments"
-        description="The canonical payment state machine, the public timeline vocabulary, and how idempotency is enforced end to end."
+        eyebrow="Accept payments"
+        title="Payment lifecycle"
+        description="Every payment follows one state machine, whichever processor handles it. Learn the states, what moves a payment between them, and how retries stay safe."
       />
 
-      <section className="mb-10">
-        <h2 id="canonical-states" className="mb-3 text-lg font-semibold text-foreground">Canonical states</h2>
-        <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          A payment moves through exactly one of 15 states, defined in{" "}
-          <code className="font-mono">payment-orchestrator-go/internal/domain/statemachine.go</code>{" "}
-          (a 1:1 port of the original <code className="font-mono">src/domain/stateMachine.ts</code>):
+      <DocSection id="states" title="Payment states">
+        <p>
+          A payment is always in exactly one state. States marked final never change again. Events that arrive after a
+          payment is final are kept on its timeline but don&apos;t change the state.
         </p>
-        <div className="mb-4 flex flex-wrap gap-1.5">
-          {[
-            "created",
-            "requires_action",
-            "authorizing",
-            "authorized",
-            "capturing",
-            "captured",
-            "refund_pending",
-            "refunded",
-            "dispute_opened",
-            "dispute_won",
-            "dispute_lost",
-            "declined",
-            "voided",
-            "failed",
-            "settled",
-          ].map((s) => (
-            <Badge key={s} tone="neutral" className="font-mono normal-case">
-              {s}
-            </Badge>
+        <dl className="divide-y divide-border border-y border-border">
+          {STATES.map((row) => (
+            <div key={row.state} className="grid gap-1 py-2.5 sm:grid-cols-[11rem_1fr_auto]">
+              <dt><InlineCode>{row.state}</InlineCode></dt>
+              <dd className="text-sm">{row.meaning}</dd>
+              <dd className="text-xs font-medium text-muted-foreground">{row.final ? "Final" : ""}</dd>
+            </div>
           ))}
-        </div>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          Terminal states are <code className="font-mono">declined</code>, <code className="font-mono">voided</code>,{" "}
-          <code className="font-mono">failed</code>, <code className="font-mono">dispute_won</code>, and{" "}
-          <code className="font-mono">dispute_lost</code>. Notably, <code className="font-mono">settled</code> and{" "}
-          <code className="font-mono">refunded</code> are <strong className="text-foreground">not</strong>{" "}
-          terminal — a settled payment can still be disputed, and a refunded payment can receive further
-          partial refunds (<code className="font-mono">refunded</code> loops back to{" "}
-          <code className="font-mono">refund_pending</code> on another <code className="font-mono">refund_started</code>{" "}
-          event).
-        </p>
-      </section>
+        </dl>
+      </DocSection>
 
-      <section className="mb-10">
-        <h2 id="transition-table" className="mb-3 text-lg font-semibold text-foreground">The transition table is law</h2>
-        <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          <code className="font-mono">ALLOWED_TRANSITIONS</code> maps each state to the canonical event types
-          it accepts and where they lead:
+      <DocSection id="capture" title="Automatic and manual capture">
+        <p>
+          With <InlineCode>captureMethod: &quot;automatic&quot;</InlineCode> the payment goes straight to{" "}
+          <InlineCode>captured</InlineCode>. With <InlineCode>manual</InlineCode> it stops at{" "}
+          <InlineCode>authorized</InlineCode>, and you <Link href="/docs/api/capture-payment" className="font-medium text-primary hover:underline">capture</Link>{" "}
+          or <Link href="/docs/api/void-payment" className="font-medium text-primary hover:underline">void</Link> it later,
+          for example after checking stock.
         </p>
-        <CodeBlock label="internal/domain/statemachine.go (abridged)">{`created         + authentication_required   -> requires_action
-created         + authorization_started      -> authorizing
-requires_action + authentication_completed   -> authorizing
-requires_action + authentication_failed      -> declined
-authorizing     + authorized                 -> authorized
-authorizing     + declined                   -> declined
-authorizing     + authorization_failed       -> failed
-authorized      + capture_started            -> capturing
-authorized      + voided                     -> voided
-capturing       + captured                   -> captured
-capturing       + declined                   -> declined
-captured        + refund_started             -> refund_pending
-captured        + dispute_opened             -> dispute_opened
-captured        + settled                    -> settled
-refund_pending  + refunded                   -> refunded
-refund_pending  + declined                   -> declined
-refunded        + refund_started             -> refund_pending   (further partial refunds)
-settled         + dispute_opened             -> dispute_opened
-dispute_opened  + dispute_won                -> captured | settled  (needs resolvedTarget)
-dispute_opened  + dispute_lost                -> dispute_lost`}</CodeBlock>
-        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          <code className="font-mono">applyTransition(currentState, event)</code> returns one of three outcomes:
-        </p>
-        <ul className="mt-2 space-y-1.5 text-sm text-muted-foreground">
-          <li>
-            <Badge tone="success" className="mr-2">
-              transitioned
-            </Badge>
-            the event is valid from the current state — state moves, one timeline row is written.
-          </li>
-          <li>
-            <Badge tone="warning" className="mr-2">
-              late
-            </Badge>
-            the event type is recognized but invalid from the current state (e.g. a duplicate/out-of-order
-            webhook). Recorded as a <code className="font-mono">late_event</code> row — state does{" "}
-            <strong className="text-foreground">not</strong> regress.
-          </li>
-          <li>
-            <Badge tone="danger" className="mr-2">
-              rejected
-            </Badge>
-            a genuinely unknown event type throws <code className="font-mono">InvalidTransitionError</code>{" "}
-            and is logged as an <code className="font-mono">invariant_violation</code> row before rethrowing.
-          </li>
-        </ul>
-      </section>
+      </DocSection>
 
-      <section className="mb-10">
-        <h2 id="effectful-transitions" className="mb-3 text-lg font-semibold text-foreground">
-          Effectful transitions: <code className="font-mono">internal/statemachine/db.go</code>
-        </h2>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          <code className="font-mono">Transition(ctx, pool, paymentId, event)</code> is the single choke
-          point for all state changes. It locks the row with <code className="font-mono">
-            SELECT ... FOR UPDATE
-          </code>{" "}
-          inside a DB transaction, validates via the pure state machine above, and — whatever the
-          outcome — writes exactly one <code className="font-mono">payment_events</code> row in the same
-          transaction. On a successful transition it also enqueues an outbox row (
-          <code className="font-mono">event_type: &apos;outbound-webhook&apos;</code>) for any event type that has a
-          stable public name, carrying <code className="font-mono">{"{ state, amount, declineCode }"}</code> —
-          this is the same transactional-outbox mechanism that eventually notifies products.
+      <DocSection id="routing" title="Routing and fallback">
+        <p>
+          The workflow for the payment method decides which processor to try. A processor that keeps failing is taken
+          out of rotation by a circuit breaker; after a cool-down a single trial payment checks whether it has
+          recovered before traffic returns. Only technical failures fall back to another processor. A real decline from
+          the bank is never retried elsewhere, because that would count against your dispute and fraud ratios.
         </p>
-      </section>
+      </DocSection>
 
-      <section className="mb-10">
-        <h2 id="timeline-events" className="mb-3 text-lg font-semibold text-foreground">Timeline events (the public contract)</h2>
-        <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          Internal canonical event types are richer than what&apos;s exposed. <code className="font-mono">
-            internal/api/timeline.go
-          </code>{" "}
-          defines a smaller, stable vocabulary (<code className="font-mono">TIMELINE_EVENT_NAMES</code>) that
-          products and this dashboard actually see:
+      <DocSection id="timeline" title="Timeline">
+        <p>
+          <Link href="/docs/api/retrieve-payment" className="font-medium text-primary hover:underline">Retrieving a payment</Link>{" "}
+          returns every processor attempt and a timeline of events with stable names, the same names your{" "}
+          <Link href="/docs/webhooks" className="font-medium text-primary hover:underline">webhooks</Link> use.
         </p>
-        <div className="mb-3 flex flex-wrap gap-1.5">
-          {[
-            "started",
-            "authentication_required",
-            "authorized",
-            "pending",
-            "captured",
-            "declined",
-            "voided",
-            "refund_pending",
-            "refunded",
-            "settled",
-            "dispute_opened",
-            "dispute_closed",
-          ].map((s) => (
-            <Badge key={s} tone="accent" className="font-mono normal-case">
-              {s}
-            </Badge>
-          ))}
-        </div>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          Several internal event types collapse onto the same stable name — e.g.{" "}
-          <code className="font-mono">authorization_started</code> → <code className="font-mono">started</code>,{" "}
-          <code className="font-mono">authentication_completed</code> and{" "}
-          <code className="font-mono">capture_started</code> both → <code className="font-mono">pending</code>, and
-          both <code className="font-mono">dispute_won</code>/<code className="font-mono">dispute_lost</code> →{" "}
-          <code className="font-mono">dispute_closed</code> (with a separate <code className="font-mono">outcome:
-          &apos;won&apos;|&apos;lost&apos;</code> field). <code className="font-mono">late_event</code> and{" "}
-          <code className="font-mono">invariant_violation</code> are deliberately excluded from this public
-          vocabulary — they stay in <code className="font-mono">payment_events</code> for internal
-          diagnostics only.
-        </p>
-      </section>
+        <CodeTabs
+          samples={[
+            {
+              label: "timeline",
+              code: JSON.stringify(
+                [
+                  { event: "started", occurredAt: "2026-10-19T09:12:44.130Z" },
+                  { event: "authentication_required", occurredAt: "2026-10-19T09:12:44.610Z" },
+                  { event: "authorized", occurredAt: "2026-10-19T09:13:02.881Z" },
+                  { event: "captured", occurredAt: "2026-10-19T09:13:03.240Z" },
+                ],
+                null,
+                2,
+              ),
+            },
+          ]}
+        />
+      </DocSection>
 
-      <section className="mb-10">
-        <h2 id="idempotency" className="mb-3 text-lg font-semibold text-foreground">Idempotency, at every layer</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <Card>
-            <CardHeader>
-              <CardTitle>Client → API</CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              Every mutating <code className="font-mono">/v1/*</code> call requires an{" "}
-              <code className="font-mono">Idempotency-Key</code> header. Postgres is the arbiter: the key is
-              a primary key on <code className="font-mono">idempotency_keys</code>, so concurrent requests
-              race to insert and the loser polls for the winner&apos;s stored response. A key reused with a{" "}
-              <em>different</em> request hash (method + path + body, SHA-256) returns 409.
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>API → PSP</CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              A deterministic per-attempt idempotency key is forwarded to the PSP on every mutating call
-              (Stripe&apos;s own <code className="font-mono">idempotencyKey</code> option, Solidgate&apos;s signed
-              request). Retrying a dropped response with the same key must yield exactly one charge, never
-              two.
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Webhook → handler</CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              <code className="font-mono">webhook_inbox</code> has a unique constraint on{" "}
-              <code className="font-mono">(psp, provider_event_id)</code>. Duplicate deliveries insert-conflict
-              and short-circuit to a 200 before any business logic runs.
-            </CardContent>
-          </Card>
-        </div>
-        <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-          Redis is layered on top purely as a 24-hour read-through cache of already-completed responses (
-          <code className="font-mono">idempotency:response:&lt;key&gt;</code>) to keep replay traffic off
-          Postgres — it is never the source of truth for &quot;who won.&quot;
+      <DocSection id="safe-retries" title="Safe retries">
+        <p>
+          Send the same <InlineCode>Idempotency-Key</InlineCode> when you retry after a timeout. The API returns the
+          original result instead of charging again, and the key is forwarded to the processor so a retry never creates
+          a second charge there either.
         </p>
-      </section>
-
-      <section>
-        <h2 id="money" className="mb-3 text-lg font-semibold text-foreground">Money</h2>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          All amounts are a branded <code className="font-mono">Money</code> type (
-          <code className="font-mono">{"{ minorUnits: number; currency: string }"}</code> on the wire),
-          constructed only via <code className="font-mono">MakeMoney()</code> (
-          <code className="font-mono">internal/domain/money.go</code> — a 1:1 port of the original{" "}
-          <code className="font-mono">makeMoney()</code>), which rejects non-integers, unsafe integers,
-          negative values, and any currency outside a 20-code allow-list. A small zero-decimal set (JPY,
-          KRW, VND, CLP, ISK, HUF) is handled explicitly in both the backend and this dashboard&apos;s{" "}
-          <code className="font-mono">formatMoney()</code> helper — everything else is assumed to have 2
-          decimal places.
-        </p>
-        <Callout tone="warning" title="Known gap in this dashboard" className="mt-4">
-          The Plans pricing editor in this frontend always divides/multiplies by 100 when entering an
-          amount. Zero-decimal currencies will show or store the wrong amount if selected — this hasn&apos;t
-          been fixed yet.
+        <Callout tone="tip" title="Pick keys from your own data">
+          Use something like <InlineCode>order_8841</InlineCode>, not a random value generated per request. A random key
+          on each retry defeats the protection.
         </Callout>
-      </section>
+      </DocSection>
+
+      <DocSection id="amounts" title="Amounts">
+        <p>
+          Amounts are integers in the currency&apos;s smallest unit: 1999 USD is $19.99 and 1999 JPY is ¥1,999. There is
+          no floating point anywhere in the API, so rounding errors can&apos;t creep in.
+        </p>
+      </DocSection>
     </div>
   );
 }

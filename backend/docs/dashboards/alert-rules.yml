@@ -1,18 +1,7 @@
-# T7.3: Prometheus alert rules, checked in as code rather than
-# configured by hand in an alerting UI. Every rule here reacts to a
-# metric this codebase already emits (src/observability/metrics.ts) —
-# no rule references a metric nothing sets (see the T7.2 gauge-wiring
-# fix in src/webhooks/inboxAttempts.ts for why that specific check
-# matters here).
 groups:
   - name: payment-orchestrator.webhooks
     rules:
       - alert: WebhookSignatureInvalidFlood
-        # T3.6's chaos test asserts the underlying behavior (a flood of
-        # bad signatures -> 400s + this counter, zero inbox writes);
-        # this alert is what pages a human when that "flood" isn't a
-        # test, it's real traffic (stolen/rotated signing secret,
-        # someone probing the endpoint).
         expr: rate(webhooks_signature_invalid_total[5m]) > 1
         for: 5m
         labels:
@@ -88,10 +77,6 @@ groups:
           description: 'Run `make recon-report` for the breakdown by psp_account/type.'
 
       - alert: NetReconciliationNegative
-        # captured - refunded - paid_out should never go negative — a
-        # negative value means more was paid out than was ever
-        # captured net of refunds, which is never legitimate (see
-        # src/workflow/tasks/nightlyInvariants.ts's docblock).
         expr: ledger_net_reconciliation_discrepancy_minor_units < 0
         labels:
           severity: critical

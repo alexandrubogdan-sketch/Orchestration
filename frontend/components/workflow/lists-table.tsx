@@ -6,13 +6,6 @@ import { getMockAudienceLists } from "@/lib/mock-data";
 import { AUDIENCE_LIST_TYPE_LABELS } from "@/lib/types";
 import { formatDateTime } from "@/lib/utils";
 
-/**
- * Mirrors the real client's lists-list.component.tsx: name / type /
- * author / created-at columns. These lists are a visual/structural
- * stand-in only (see lib/types.ts's AudienceList doc comment) — no
- * create/edit/delete flow yet, so this table is read-only, unlike
- * WorkflowsTable's row actions.
- */
 export function ListsTable() {
   const lists = getMockAudienceLists();
 

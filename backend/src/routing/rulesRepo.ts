@@ -5,17 +5,6 @@ import type { Db } from '../db/client.js';
 import type { RoutingRulesTable } from '../db/types.js';
 import type { RoutingMatchCriteria, RoutingRule } from './types.js';
 
-/**
- * T5.1: "routing_rules table, Redis-cached with invalidation, audit
- * trail." Postgres remains the source of truth (Non-negotiable #2);
- * Redis is a cache-aside read-through layer with a TTL fallback (in
- * case an invalidation is ever missed) — the same shape as
- * `src/adapters/registry.ts`'s decline-map cache, but with an explicit
- * invalidation path instead of "restart the process," since routing
- * rules are expected to change far more often than a PSP's decline
- * code list.
- */
-
 const CACHE_TTL_SECONDS = 300;
 
 function cacheKey(merchantEntityId: string, productId: string | null): string {
@@ -51,14 +40,6 @@ export interface RulesRepoDeps {
   redis: Redis;
 }
 
-/**
- * Every enabled rule that could apply to `productId` — both
- * product-specific rules and entity-wide rules (`product_id IS NULL`)
- * — ordered by `priority` ascending (lower priority number = evaluated
- * first, per T5.2's first-match-wins contract). Cached per
- * (merchantEntityId, productId) pair; callers needing entity-wide rules
- * alone should query with `productId: null` directly.
- */
 export async function listActiveRules(
   deps: RulesRepoDeps,
   params: { merchantEntityId: string; productId: string },
@@ -88,12 +69,6 @@ async function invalidate(
   merchantEntityId: string,
   productId: string | null,
 ): Promise<void> {
-  // A rule can be entity-wide (visible to every product's cache entry),
-  // so a write to one invalidates every cache key for the entity, not
-  // just the single (entity, productId) pair the write happened under.
-  // `KEYS` is fine here (Redis, not a hot path — writes are an admin
-  // operation, not per-request traffic); a high-volume deployment would
-  // swap this for a maintained per-entity SET of active cache keys.
   const pattern = `routing:rules:${merchantEntityId}:*`;
   const keys = await deps.redis.keys(pattern);
   if (keys.length > 0) {

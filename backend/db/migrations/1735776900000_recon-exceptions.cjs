@@ -1,13 +1,3 @@
-/**
- * Milestone 6, T6.3: "Exceptions queue: recon_exceptions table +
- * `make recon-report`."
- *
- * Rows here are mutable (status open -> resolved/ignored) — unlike
- * payment_events/transactions/audit_log, an exception is a WORKING
- * QUEUE item an operator triages, not an immutable historical fact, so
- * no append-only trigger on this one.
- */
-
 exports.shorthands = undefined;
 
 exports.up = (pgm) => {

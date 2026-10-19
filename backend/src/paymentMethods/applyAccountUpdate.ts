@@ -3,26 +3,6 @@ import type { Db } from '../db/client.js';
 import type { AccountUpdateRecord } from '../adapters/types.js';
 import { cancelSubscription } from '../subscriptions/subscriptions.js';
 
-/**
- * T8.3: applies one normalized account-updater notification to
- * `payment_methods` (and, transitively, any subscription billing it).
- *
- * `card_closed` cancels every active/past_due subscription on that
- * instrument outright — mirrors the hard-decline handling in
- * src/workflow/tasks/renewalDispatcher.ts (retrying a confirmed-closed
- * account is exactly as pointless as retrying a stolen-card decline).
- *
- * A `card_updated` WITH a new token (`newPspPaymentMethodRef`) creates
- * a fresh `payment_methods` row rather than mutating the existing
- * one's `psp_payment_method_ref` in place — the OLD token remains a
- * historically accurate record of what a given `payment_attempts` row
- * actually charged (attempts reference `payment_methods` only
- * indirectly, via the PSP-side ref captured at attempt time, but
- * keeping the row itself immutable-in-spirit avoids ever rewriting
- * what "this token" meant retroactively). `network_transaction_id`
- * carries forward unchanged — Non-negotiable #9's MIT continuity
- * survives a token reissue on the same physical card.
- */
 export async function applyAccountUpdate(
   db: Db,
   pspAccountId: string,
@@ -34,7 +14,7 @@ export async function applyAccountUpdate(
     .where('psp_account_id', '=', pspAccountId)
     .where('psp_payment_method_ref', '=', update.pspPaymentMethodRef)
     .executeTakeFirst();
-  if (!paymentMethod) return; // not a payment method we know about — nothing to apply
+  if (!paymentMethod) return;
 
   if (update.type === 'card_closed') {
     await db
@@ -55,7 +35,6 @@ export async function applyAccountUpdate(
     return;
   }
 
-  // card_updated
   if (
     update.newPspPaymentMethodRef &&
     update.newPspPaymentMethodRef !== update.pspPaymentMethodRef
@@ -92,7 +71,6 @@ export async function applyAccountUpdate(
     return;
   }
 
-  // In-place update: same token, new expiry (or nothing new — a no-op update).
   await db
     .updateTable('payment_methods')
     .set({

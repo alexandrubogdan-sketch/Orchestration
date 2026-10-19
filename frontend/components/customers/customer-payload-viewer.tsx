@@ -7,27 +7,6 @@ import { CopyToClipboardButton } from "@/components/ui/copy-to-clipboard-button"
 import { cn } from "@/lib/utils";
 import type { Customer } from "@/lib/types";
 
-/**
- * Raw JSON payload of the full Customer record — rendered as a single
- * combined JSON block (`{ customer, subscription, paymentMethods }`),
- * matching how a real API response would group these concerns:
- *
- *  - `customer`   — identity/profile fields (name, email, address,
- *                    legal entity, external ref, etc.)
- *  - `subscription` — this customer's link to a Plan (see the Plans
- *                    catalog): plan id/name, status, creation date.
- *  - `paymentMethods` — an array (a customer can have 1-3 saved
- *                    methods) of display-safe card metadata only:
- *                    brand, last4, expiry, active flag, PSP account.
- *                    Never a PAN/CVV (Non-negotiable #8, see
- *                    lib/types.ts's CustomerPaymentMethod doc comment).
- *
- * This is a developer-facing "view the underlying record" panel, the
- * same idea as a PSP dashboard's "view raw object" button on a
- * customer record — useful for anyone wiring this demo's mock data
- * into a real API client later, since it shows the exact shape (and
- * grouping) to expect.
- */
 export function CustomerPayloadViewer({
   customer,
   className,

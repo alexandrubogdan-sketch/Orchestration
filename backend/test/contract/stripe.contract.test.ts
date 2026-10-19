@@ -11,27 +11,6 @@ import {
 import { STRIPE_DECLINE_SEED } from '../../src/domain/declines.js';
 import type { NormalizedDecline } from '../../src/domain/declines.js';
 
-/**
- * T2.5: golden-file contract tests. Every fixture in
- * test/contract/golden/stripe/ is a real (hand-authored but
- * shape-accurate) Stripe webhook Event or PaymentIntent object,
- * asserted against the exact canonical output our adapter must
- * produce. Adding a second PSP later means a new
- * test/contract/golden/<psp>/ directory asserting the same canonical
- * shapes — see SPEC.md T2.5.
- *
- * "Same suite runs against mock adapter" (SPEC.md T2.5): the mock
- * adapter's own webhook envelope is intentionally NOT Stripe-shaped
- * (see src/adapters/mock/index.ts), so it can't replay these exact
- * JSON fixtures — instead, test/unit/mockAdapter.test.ts asserts the
- * same canonical-output claims (a decline produces a `declined`
- * CanonicalEvent with the right normalizedCode, a success produces
- * `captured`, etc.) against the mock adapter's own fixtures. Together,
- * the two suites are "the same assertions about canonical shape,"
- * which is what actually matters — the raw JSON necessarily differs
- * per PSP.
- */
-
 const goldenDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'golden', 'stripe');
 
 function loadFixture<T>(name: string): T {
@@ -73,9 +52,7 @@ describe('Stripe contract: normalizeStripeEvent', () => {
 
   it('payment_intent.payment_failed with no decline_code falls back to the error code, mapped via decline_code_map', () => {
     const event = loadFixture('payment_intent.payment_failed.no_decline_code');
-    // "processing_error" IS in our seed map (src/domain/declines.ts), so
-    // this exercises the `code` fallback path in extractRawDeclineCode,
-    // not the unmapped-decline path.
+
     expect(normalizeStripeEvent(event as never, declineMap)).toEqual([
       { type: 'declined', declineCode: 'processing_error' },
     ]);

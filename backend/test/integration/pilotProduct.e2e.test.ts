@@ -1,3 +1,4 @@
+import { purgePaymentHistory } from '../support/purgePaymentHistory.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import pg from 'pg';
 import { Redis } from 'ioredis';
@@ -11,25 +12,6 @@ import { PspAdapterRegistry, loadDeclineMaps } from '../../src/adapters/registry
 import { generateApiToken } from '../../src/api/auth.js';
 import type { TaskDefinition, WorkflowEngine } from '../../src/workflow/engine.js';
 
-/**
- * T4.4: "Integration test: end-to-end script simulating a pilot
- * product — create CIT payment (mock PSP), 3DS branch (5000), decline
- * branch (4000), refund branch; assert timelines."
- *
- * Real Postgres throughout, per the project's working agreement ("never
- * mock away Postgres in integration tests"). Exercises the full HTTP
- * surface (auth -> route handler -> idempotency -> adapter -> state
- * machine -> timeline serializer) the way an actual pilot product
- * integration would, using the real per-product API token flow from
- * T4.1 rather than reaching into the DB to bypass auth.
- *
- * The workflow engine is a recording double (no live Hatchet broker in
- * this sandbox — see the Milestone 0 summary); nothing asserted here
- * depends on which engine eventually runs a dispatched task, since the
- * synchronous PSP-response path (src/api/attemptEvents.ts) is what
- * drives every one of these four branches, not the async webhook path
- * (that's T3.6's job).
- */
 class RecordingEngine implements WorkflowEngine {
   registerTask<Input, Output>(_definition: TaskDefinition<Input, Output>): void {}
   async dispatch<Input>(_taskName: string, _input: Input): Promise<void> {}
@@ -144,12 +126,11 @@ describe('T4.4 pilot product E2E (real Postgres)', () => {
       .execute();
     const paymentIds = ownedPayments.map((p) => p.id);
     if (paymentIds.length > 0) {
-      await db.deleteFrom('payment_events').where('payment_id', 'in', paymentIds).execute();
-      await db.deleteFrom('transactions').where('payment_id', 'in', paymentIds).execute();
+      await purgePaymentHistory(db, paymentIds);
       await db.deleteFrom('payment_attempts').where('payment_id', 'in', paymentIds).execute();
     }
     await db.deleteFrom('payments').where('merchant_entity_id', '=', merchantEntityId).execute();
-    await db.deleteFrom('audit_log').where('product_id', '=', productId).execute();
+    await purgePaymentHistory(db, [], [productId]);
     await db.deleteFrom('api_tokens').where('product_id', '=', productId).execute();
     await db.deleteFrom('payment_methods').where('psp_account_id', '=', mockPspAccountId).execute();
     await db.deleteFrom('customers').where('merchant_entity_id', '=', merchantEntityId).execute();
@@ -205,9 +186,7 @@ describe('T4.4 pilot product E2E (real Postgres)', () => {
     expect(getResponse.statusCode).toBe(200);
     const detail = getResponse.json<PaymentDto>();
     expect(detail.state).toBe('captured');
-    // authorization_started -> 'started', authorized -> 'authorized',
-    // capture_started -> 'pending', captured -> 'captured' (see
-    // src/api/timeline.ts's STABLE_NAME_BY_EVENT_TYPE).
+
     expect(detail.timeline.map((t) => t.event)).toEqual([
       'started',
       'authorized',
@@ -238,9 +217,7 @@ describe('T4.4 pilot product E2E (real Postgres)', () => {
     const getResponse = await getPayment(created.id);
     const detail = getResponse.json<PaymentDto>();
     expect(detail.state).toBe('declined');
-    // initialAttemptEvents emits authorization_started ('started') before
-    // the declined event itself — the attempt did begin, it just never
-    // got past authorization.
+
     expect(detail.timeline.map((t) => t.event)).toEqual(['started', 'declined']);
     const declineEntry = detail.timeline.find((t) => t.event === 'declined');
     expect(declineEntry?.declineCode).toBe('insufficient_funds');

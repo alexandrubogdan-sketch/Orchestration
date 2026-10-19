@@ -1,14 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
-/**
- * T8.4: outbound webhook signing. Deliberately mirrors Stripe's own
- * `t=<timestamp>,v1=<hmac>` scheme (a well-understood, defensible
- * design already familiar to any product integrating payment
- * webhooks) rather than inventing a new one: including the timestamp
- * IN the signed payload defeats replay of a captured request, which a
- * bare `HMAC(secret, body)` scheme does not.
- */
-const MAX_SIGNATURE_AGE_MS = 5 * 60_000; // 5 minutes — generous enough for delivery/retry jitter, tight enough to matter
+const MAX_SIGNATURE_AGE_MS = 5 * 60_000;
 
 export function generateWebhookSigningSecret(): string {
   return `whsec_${randomBytes(24).toString('hex')}`;
@@ -31,13 +23,6 @@ export class InvalidWebhookSignatureError extends Error {
   }
 }
 
-/**
- * Reference implementation of the verification a PRODUCT should
- * perform on their end — shipped here mainly so
- * docs/runbooks/outbound-webhooks.md can point at real, tested code
- * rather than prose alone, and so this repo's own delivery tests can
- * assert round-trip correctness.
- */
 export function verifyOutboundWebhookSignature(
   secret: string,
   rawBody: string,

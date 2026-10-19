@@ -27,9 +27,6 @@ function intervalLabel(count: number, unit: string): string {
   return count === 1 ? unit.replace(/s$/, "") : `${count} ${unit}`;
 }
 
-/** Compact price + interval summary, with a dimmed trial line underneath
- *  when the plan has an enabled trial — mirrors the real client's plans
- *  table "info" column layout. */
 function PlanInfoCell({ plan }: { plan: Plan }) {
   const defaultPrice = plan.prices.find((p) => p.country === DEFAULT_PRICE_COUNTRY) ?? plan.prices[0];
   const trialDefaultPrice = plan.trial.prices.find((p) => p.country === DEFAULT_PRICE_COUNTRY) ?? plan.trial.prices[0];

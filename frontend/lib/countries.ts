@@ -1,11 +1,3 @@
-/**
- * ISO-3166-1 alpha-2 country list for the Plans price-row country picker
- * (docs.paynext.com/guides/platform/plans §Localized Pricing). Covers the
- * ~195 UN-recognized countries plus a handful of common alpha-2 entries
- * (e.g. TW, HK, MO, PS) that PSPs/payment forms commonly need. Sorted
- * alphabetically by name. "ALL" (DEFAULT_PRICE_COUNTRY in lib/types.ts) is
- * intentionally not part of this list — it's a sentinel, not a real country.
- */
 export const COUNTRIES: { code: string; name: string }[] = [
   { code: "AF", name: "Afghanistan" },
   { code: "AL", name: "Albania" },

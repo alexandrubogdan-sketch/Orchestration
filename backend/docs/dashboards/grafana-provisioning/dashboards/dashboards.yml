@@ -1,6 +1,3 @@
-# T7.2: tells Grafana to load every dashboard JSON in this directory
-# on boot — payment-orchestrator.json specifically, but any future
-# dashboard dropped in docs/dashboards/ is picked up the same way.
 apiVersion: 1
 providers:
   - name: payment-orchestrator

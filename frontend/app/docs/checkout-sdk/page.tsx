@@ -13,6 +13,10 @@ export default function CheckoutSdkDocsPage() {
         description="The browser-embeddable @alphapayments/checkout-sdk package and the checkout-sessions backend contract it talks to — a Stripe.js/Elements-shaped API that works across Stripe, Solidgate, and the mock adapter."
       />
 
+      <Callout tone="info" title="Availability" className="mb-10">
+        {"The SDK talks to the checkout-session endpoints. Those are being moved into the main API; until then, use your processor's client library as shown in the Quickstart for live payments. Everything on this page works in Sandbox."}
+      </Callout>
+
       <Callout tone="info" title="A separate package, not part of this dashboard" className="mb-8">
         The SDK lives in its own repo (<code className="font-mono">payment-orchestrator-sdk/</code>), built
         and tested independently of this frontend. Nothing on this page or in this dashboard consumes it —
@@ -128,7 +132,7 @@ classifyPaymentState(input: ClassifyPaymentStateInput): PaymentStateClassificati
       <section className="mb-10">
         <h2 id="backend-contract" className="mb-3 text-lg font-semibold text-foreground">The backend contract it talks to</h2>
         <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
-          Three routes in <code className="font-mono">payment-orchestrator-go/internal/api/checkout_sessions.go</code>{" "}
+          Three routes in the checkout-session service
           back this SDK — the checkout-sessions resource:
         </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

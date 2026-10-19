@@ -1,15 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { WorkflowEngine, TaskDefinition } from '../../src/workflow/engine.js';
 
-/**
- * In-memory fake used purely to validate the WorkflowEngine *contract*
- * (Non-negotiable-adjacent: "wrap it behind src/workflow/engine.ts
- * interface ... so it is swappable"). This is not a test of the Hatchet
- * implementation (which needs a live broker — see docs/runbooks and the
- * Milestone 0 summary for why that isn't exercised in this sandbox); it
- * proves the interface shape is sufficient for the hello-world task and
- * that a second implementation could satisfy it.
- */
 class InMemoryWorkflowEngine implements WorkflowEngine {
   private tasks = new Map<string, TaskDefinition<any, any>>();
   public dispatched: Array<{ taskName: string; input: unknown }> = [];

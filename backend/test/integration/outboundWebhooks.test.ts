@@ -11,13 +11,6 @@ import { verifyOutboundWebhookSignature } from '../../src/outbound/signature.js'
 import { createOutboundWebhookDeliveryTask } from '../../src/workflow/tasks/outboundWebhookDelivery.js';
 import type { OutboxEventEnvelope } from '../../src/workflow/tasks/outboxRelay.js';
 
-/**
- * T8.4 integration test: a real payment state transition enqueues an
- * outbox row (src/domain/stateMachineDb.ts), which the delivery task
- * fans out, over a real HTTP POST (to a throwaway local server, not a
- * mock), to every subscribed endpoint — with a signature the receiving
- * side can independently verify using the same secret it was issued.
- */
 describe('T8.4 outbound webhook delivery (real Postgres + real HTTP)', () => {
   let pool: pg.Pool;
   let db: Db;
@@ -149,8 +142,11 @@ describe('T8.4 outbound webhook delivery (real Postgres + real HTTP)', () => {
       .selectAll()
       .where('aggregate_id', '=', paymentId)
       .where('event_type', '=', 'outbound-webhook')
-      .executeTakeFirstOrThrow();
-    const payload = JSON.parse(outboxRow.payload as string) as { event: string };
+      .execute()
+      .then((rows) =>
+        rows.find((row) => (row.payload as { event?: string }).event === 'captured')!,
+      );
+    const payload = outboxRow.payload as { event: string };
     expect(payload.event).toBe('captured');
 
     const envelope: OutboxEventEnvelope = {
@@ -158,7 +154,7 @@ describe('T8.4 outbound webhook delivery (real Postgres + real HTTP)', () => {
       aggregateType: outboxRow.aggregate_type,
       aggregateId: outboxRow.aggregate_id,
       eventType: outboxRow.event_type,
-      payload: JSON.parse(outboxRow.payload as string),
+      payload: outboxRow.payload,
     };
 
     const task = createOutboundWebhookDeliveryTask({ db });
@@ -185,7 +181,7 @@ describe('T8.4 outbound webhook delivery (real Postgres + real HTTP)', () => {
     await registerOutboundWebhookEndpoint(db, {
       productId,
       url: endpointUrl(),
-      eventTypes: ['refunded'], // not 'captured'
+      eventTypes: ['refunded'],
     });
 
     const paymentId = await seedCapturedPayment();
@@ -194,7 +190,10 @@ describe('T8.4 outbound webhook delivery (real Postgres + real HTTP)', () => {
       .selectAll()
       .where('aggregate_id', '=', paymentId)
       .where('event_type', '=', 'outbound-webhook')
-      .executeTakeFirstOrThrow();
+      .execute()
+      .then((rows) =>
+        rows.find((row) => (row.payload as { event?: string }).event === 'captured')!,
+      );
 
     const task = createOutboundWebhookDeliveryTask({ db });
     const result = await task.handler(
@@ -203,7 +202,7 @@ describe('T8.4 outbound webhook delivery (real Postgres + real HTTP)', () => {
         aggregateType: outboxRow.aggregate_type,
         aggregateId: outboxRow.aggregate_id,
         eventType: outboxRow.event_type,
-        payload: JSON.parse(outboxRow.payload as string),
+        payload: outboxRow.payload,
       },
       fakeCtx,
     );
@@ -223,13 +222,16 @@ describe('T8.4 outbound webhook delivery (real Postgres + real HTTP)', () => {
       .selectAll()
       .where('aggregate_id', '=', paymentId)
       .where('event_type', '=', 'outbound-webhook')
-      .executeTakeFirstOrThrow();
+      .execute()
+      .then((rows) =>
+        rows.find((row) => (row.payload as { event?: string }).event === 'captured')!,
+      );
     const envelope: OutboxEventEnvelope = {
       outboxEventId: outboxRow.id,
       aggregateType: outboxRow.aggregate_type,
       aggregateId: outboxRow.aggregate_id,
       eventType: outboxRow.event_type,
-      payload: JSON.parse(outboxRow.payload as string),
+      payload: outboxRow.payload,
     };
 
     const task = createOutboundWebhookDeliveryTask({ db });
@@ -237,6 +239,6 @@ describe('T8.4 outbound webhook delivery (real Postgres + real HTTP)', () => {
     const secondRun = await task.handler(envelope, fakeCtx);
 
     expect(secondRun).toEqual({ attempted: 0, delivered: 0, failed: 0 });
-    expect(receivedRequests).toHaveLength(1); // only the first run actually POSTed
+    expect(receivedRequests).toHaveLength(1);
   });
 });

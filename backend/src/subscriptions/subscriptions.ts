@@ -3,12 +3,6 @@ import type { Db } from '../db/client.js';
 import type { SubscriptionIntervalUnit } from '../db/types.js';
 import { addInterval } from './period.js';
 
-/**
- * Milestone 8, T8.1. A subscription bills one specific
- * `payment_method` (and implicitly the `psp_account` it belongs to) —
- * see the migration's docblock for why re-routing isn't attempted
- * here.
- */
 export interface CreateSubscriptionInput {
   merchantEntityId: string;
   productId: string;
@@ -56,7 +50,6 @@ export async function createSubscription(db: Db, input: CreateSubscriptionInput)
   return id;
 }
 
-/** Called after a successful renewal charge — advances to the next billing period and clears dunning state. */
 export async function advanceSubscriptionPeriod(db: Db, subscriptionId: string): Promise<void> {
   const subscription = await db
     .selectFrom('subscriptions')
@@ -87,13 +80,12 @@ export async function advanceSubscriptionPeriod(db: Db, subscriptionId: string):
     .execute();
 }
 
-/** Called after a renewal charge is declined — hands off to the dunning ladder (T8.2) rather than canceling outright. */
 export async function markSubscriptionPastDue(db: Db, subscriptionId: string): Promise<void> {
   await db
     .updateTable('subscriptions')
     .set({
       status: 'past_due',
-      dunning_next_retry_at: new Date(), // immediately eligible; T8.2's cron schedules the actual ladder cadence from here
+      dunning_next_retry_at: new Date(),
       updated_at: new Date(),
     })
     .where('id', '=', subscriptionId)
@@ -138,9 +130,7 @@ export async function resumeSubscription(db: Db, subscriptionId: string): Promis
     .updateTable('subscriptions')
     .set({
       status: 'active',
-      // Resuming immediately makes the (possibly already-past) period
-      // end due right away, rather than silently skipping a billing
-      // cycle that happened to fall during the pause.
+
       next_billing_at: subscription.current_period_end,
       updated_at: new Date(),
     })

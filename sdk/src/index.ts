@@ -1,22 +1,3 @@
-/**
- * @alphapayments/checkout-sdk — browser-embeddable checkout SDK for
- * Alpha Payments. See README.md for the full integration guide.
- *
- * Quick start:
- *
- *   import { loadCheckout } from "@alphapayments/checkout-sdk";
- *
- *   const checkout = await loadCheckout({
- *     apiBaseUrl: "https://api.example.com",
- *     sessionId: session.id,
- *     clientSecret: session.clientSecret,
- *   });
- *
- *   const card = checkout.createElement("card");
- *   card.mount("#card-container");
- *
- * For React bindings, import from "@alphapayments/checkout-sdk/react" instead.
- */
 export { loadCheckout, CheckoutSession } from "./session";
 export type {
   LoadCheckoutOptions,

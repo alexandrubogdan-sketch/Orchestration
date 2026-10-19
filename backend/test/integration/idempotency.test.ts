@@ -6,14 +6,6 @@ import { createDb, type Db } from '../../src/db/client.js';
 import { loadConfig, __resetConfigForTests } from '../../src/config/index.js';
 import { IdempotencyConflictError, withIdempotencyKey } from '../../src/api/idempotency.js';
 
-/**
- * T1.5: "Concurrency test: 20 parallel identical requests -> exactly
- * one payment." Requires real Postgres + Redis (Non-negotiable #2 —
- * idempotency is enforced by the database, so mocking it away would
- * test nothing). Run via `make test-integration` against
- * docker-compose's services, or let CI run it against the postgres/
- * redis service containers (.github/workflows/ci.yml).
- */
 describe('withIdempotencyKey (real Postgres + Redis)', () => {
   let db: Db;
   let pool: pg.Pool;
@@ -49,7 +41,7 @@ describe('withIdempotencyKey (real Postgres + Redis)', () => {
     let executionCount = 0;
     const handler = async () => {
       executionCount += 1;
-      // Simulate real work so concurrent requests actually overlap.
+
       await new Promise((resolve) => setTimeout(resolve, 25));
       return { status: 201, body: { paymentId: uuidv7() } };
     };
@@ -65,7 +57,7 @@ describe('withIdempotencyKey (real Postgres + Redis)', () => {
       expect(result.status).toBe(201);
       expect(JSON.stringify(result.body)).toBe(firstBody);
     }
-    // Exactly one of the 20 callers should see replayed: false (the winner).
+
     expect(results.filter((r) => !r.replayed)).toHaveLength(1);
   });
 

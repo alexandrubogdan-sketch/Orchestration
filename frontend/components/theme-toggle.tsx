@@ -13,10 +13,6 @@ import {
 
 export function ThemeToggle() {
   const { setTheme } = useTheme();
-  // Both icons render unconditionally; visibility is resolved purely via
-  // the `dark:` CSS variant (driven by the `.dark` class on <html>), so
-  // there's no client/server markup mismatch to guard against here and
-  // no need for a mount-gated useState/useEffect pair.
 
   return (
     <DropdownMenu>

@@ -38,16 +38,6 @@ import {
 } from "./types";
 import { COUNTRIES } from "./countries";
 
-/**
- * Deterministic PRNG (mulberry32). Every generator below creates its
- * OWN local instance (seeded explicitly, or derived from a stable id)
- * rather than sharing one module-level generator — a shared generator's
- * cursor would advance differently depending on call order/count across
- * requests, so the same payment id could produce different-looking data
- * on the list page vs. its own detail page. Each generator being
- * self-seeded means "generate payment X's data" is a pure function of
- * X alone.
- */
 function mulberry32(seed: number) {
   let a = seed;
   return function random() {
@@ -91,9 +81,6 @@ function randomEmail(rng: Rng): string {
   return `customer${randInt(rng, 1000, 9999)}@${pick(rng, DOMAINS)}`;
 }
 
-/** name.lastname@domain style, used for Customer.email once firstName/lastName exist below —
- *  keeps the two fields visually consistent in the raw-payload JSON viewer instead of a bare
- *  customerNNNN@ handle next to an unrelated real-looking name. */
 function nameBasedEmail(rng: Rng, firstName: string, lastName: string): string {
   const sep = rng() < 0.5 ? "." : "";
   const suffix = rng() < 0.3 ? String(randInt(rng, 1, 99)) : "";
@@ -113,9 +100,6 @@ const CUSTOMER_LAST_NAMES = [
   "Kowalski", "Andersen", "Fontaine", "Weber", "Nilsen", "Marchetti",
 ];
 
-/** Generic street-name components — plausible in any of COMMON_CUSTOMER_COUNTRIES,
- *  not a geocoded real address. Display-only, same rationale as `CustomerAddress`'s
- *  doc comment in lib/types.ts. */
 const STREET_NAMES = [
   "Maple", "Oak", "Cedar", "Birch", "Elm", "Willow", "Harbor", "Sunset",
   "Highland", "River", "Lake", "Church", "Market", "Station", "Mill",
@@ -149,10 +133,7 @@ function daysAgoIso(days: number, rng: Rng, hourJitter = 24): string {
 
 const CARD_BRANDS = ["visa", "mastercard", "amex", "discover"];
 const WALLET_BRANDS = ["apple_pay", "google_pay"];
-/** Weighted toward a handful of common issuer countries, with a long
- *  tail across the full ISO-3166 list — matches how a real customer
- *  base skews geographically without making every country equally
- *  likely (docs/design.md's routing examples lean US/EU-heavy too). */
+
 const COMMON_CUSTOMER_COUNTRIES = ["US", "GB", "DE", "FR", "CA", "AU", "NL", "ES", "BR", "IN"];
 
 function randomCountry(rng: Rng): string {
@@ -188,8 +169,6 @@ function buildPaymentMethod(rng: Rng, id: string): CustomerPaymentMethod {
   return { id, type, pspAccount, isActive: rng() < 0.9 };
 }
 
-/** Weighted so most customers are in good standing — matches a healthy
- *  subscription book more than an even 25/25/25/25 split would. */
 const SUBSCRIPTION_STATUS_WEIGHTS: Array<[CustomerSubscriptionStatus, number]> = [
   ["active", 0.72],
   ["trialing", 0.1],
@@ -214,7 +193,7 @@ function buildSubscription(rng: Rng, customerId: string, customerCreatedAtDaysAg
     planId: plan.id,
     planName: plan.name,
     status: randomSubscriptionStatus(rng),
-    // Subscription always starts on/after the customer record itself.
+
     createdAt: daysAgoIso(randInt(rng, 0, customerCreatedAtDaysAgo), rng),
   };
 }
@@ -299,9 +278,6 @@ function buildMockPayments(count: number): Payment[] {
   return payments.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
 
-// Memoized: computed once per server process so a payment id looked up
-// from the detail page (a separate request from the list page) resolves
-// to the exact same record instead of a freshly-regenerated one.
 let cachedPayments: Payment[] | undefined;
 export function getMockPayments(count = 180): Payment[] {
   cachedPayments ??= buildMockPayments(count);
@@ -419,10 +395,6 @@ export function computeEntityBreakdown(payments: Payment[]): EntityBreakdownRow[
   });
 }
 
-/** Seed plan catalog — a mix of recurring and one-off plans covering
- *  base pricing, per-country/currency override rules, a mirrored trial
- *  block, and every tax-collection mode, so the Plans page has realistic
- *  data to exercise the richer plan model against. */
 export function defaultPlans(): Plan[] {
   return [
     {
@@ -515,8 +487,6 @@ export function defaultPlans(): Plan[] {
   ];
 }
 
-/** Seed integrations catalog — docs.paynext.com/integrations/overview.
- *  Scoped to this backend's three built adapters (Stripe, Solidgate, PayPal). */
 export function defaultIntegrations(): Integration[] {
   return [
     {
@@ -548,10 +518,6 @@ export function defaultIntegrations(): Integration[] {
   ];
 }
 
-/** Seed workflows — docs.paynext.com/guides/platform/workflows. Each
- *  payment method can have at most one workflow (same constraint
- *  PayNext enforces), matching the trigger's 1:1 tie to a payment
- *  method. */
 export function defaultWorkflows(): Workflow[] {
   return [
     {
@@ -560,11 +526,7 @@ export function defaultWorkflows(): Workflow[] {
       paymentMethod: "cards",
       state: "published",
       updatedAt: daysAgoIso(2, mulberry32(5)),
-      // A 2-block Condition node (EU issuers vs. everyone else), each
-      // block routing to its own Authorize action, followed by a Split
-      // node fanning the EU path across two processors — exercises the
-      // full node-graph model (branching condition blocks + a
-      // percentage split), not just a linear chain.
+
       nodes: [
         { id: "node-trigger", kind: "trigger", paymentMethod: "cards" },
         {
@@ -672,13 +634,6 @@ export function defaultWorkflows(): Workflow[] {
   ];
 }
 
-/* ------------------------------------------------------------------ *
- * Team — no PayNext/backend model to mirror (see lib/types.ts's Team
- * section comment), so this is an original seed catalog sized like a
- * small payments team: a couple of admins/founders, a handful of
- * members, one support seat, plus a couple of outstanding invites.
- * ------------------------------------------------------------------ */
-
 const TEAM_FIRST_NAMES = [
   "Alex",
   "Jordan",
@@ -761,16 +716,6 @@ export function getMockTeamInvites(count = 3): TeamInvite[] {
   return cachedTeamInvites;
 }
 
-/* ------------------------------------------------------------------ *
- * Retries — "Recent retry attempts" table on the Retries tab under
- * Workflows (app/workflows/retries/page.tsx). Each row is a dunning-
- * ladder rung that actually fired against one of the existing mock
- * payments (getMockPayments()), so payment id links on this table lead
- * to a real (mock) payment detail page — same cross-reference pattern
- * getMockPaymentsForCustomer already establishes between customers and
- * payments.
- * ------------------------------------------------------------------ */
-
 const RETRY_ATTEMPT_OUTCOME_WEIGHTS: { outcome: RetryAttemptOutcome; weight: number }[] = [
   { outcome: "declined", weight: 0.55 },
   { outcome: "succeeded", weight: 0.3 },
@@ -789,12 +734,7 @@ function pickWeightedOutcome(rng: Rng): RetryAttemptOutcome {
 
 function buildMockRetryAttempts(count: number): RetryAttempt[] {
   const rng = mulberry32(31);
-  // Retries only ever fire against a payment that has already declined
-  // once — mirroring the real dunning ladder's own precondition (only a
-  // subscription's failed renewal enters dunning at all; see the real
-  // backend's internal/subscriptions/dunning.go doc comment). Falls
-  // back to the full payment set if fewer than `count` declines exist
-  // in the current mock dataset, so this never renders an empty table.
+
   const declinedPayments = getMockPayments().filter((p) => p.state === "declined");
   const sourcePayments = declinedPayments.length > 0 ? declinedPayments : getMockPayments();
 
@@ -819,19 +759,6 @@ export function getMockRetryAttempts(count = 24): RetryAttempt[] {
   return cachedRetryAttempts;
 }
 
-/* ------------------------------------------------------------------ *
- * Workflow detail — Runs / History tabs on a single workflow's own
- * builder page (app/workflows/[id]/page.tsx, components/workflow/
- * workflow-runs-table.tsx + workflow-history-list.tsx). Mirrors the
- * real client's module/workflow (singular) WorkflowRunsComponent /
- * WorkflowHistoryComponent — see workflow-history.service.ts's
- * workflowHistoryColumns for the version/status/author/date_published
- * shape this loosely follows. Each generator is seeded from the
- * workflow's own id (hashString) rather than a fixed constant, so
- * every workflow gets its own stable-but-different run/history feed
- * instead of every workflow showing identical rows.
- * ------------------------------------------------------------------ */
-
 const WORKFLOW_RUN_STATUS_WEIGHTS: { status: WorkflowRunStatus; weight: number }[] = [
   { status: "succeeded", weight: 0.72 },
   { status: "failed", weight: 0.18 },
@@ -848,10 +775,6 @@ function pickWeightedRunStatus(rng: Rng): WorkflowRunStatus {
   return WORKFLOW_RUN_STATUS_WEIGHTS.at(-1)!.status;
 }
 
-/** "Runs" tab — individual executions of this workflow's node chain,
- *  newest first. Each run is tied to a real (mock) payment id the same
- *  way RetryAttempt.paymentId cross-references the payments table
- *  above, so a run row can link out to a real payment detail page. */
 export function getMockWorkflowRuns(workflowId: string, count = 18): WorkflowRun[] {
   const rng = mulberry32(hashString(workflowId));
   const payments = getMockPayments();
@@ -876,10 +799,6 @@ const WORKFLOW_HISTORY_ACTORS = ["Alex Bogdan", "Priya Kapoor", "Marcus Chen", "
 
 const WORKFLOW_HISTORY_NODE_LABELS = ["Authorize", "Condition: Issuer country", "Settle payment", "Block payment"];
 
-/** Builds one history event of `type` with a version label that
- *  decrements as we go further back in time (v(count) newest -> v1
- *  oldest), matching a real version-history log where the most recent
- *  entry is the highest version number. */
 function buildHistoryEvent(
   rng: Rng,
   workflowId: string,
@@ -911,11 +830,6 @@ function buildHistoryEvent(
   };
 }
 
-/** "History" tab — reverse-chronological version/change log for this
- *  workflow (e.g. "Published v3", "Draft saved", "Node added:
- *  Authorize"), newest first. Newest entry is always `published` so
- *  the top of the list always reflects a real "current live version",
- *  matching how the real client's own history tab reads. */
 export function getMockWorkflowHistory(workflowId: string, count = 9): WorkflowHistoryEvent[] {
   const rng = mulberry32(hashString(workflowId) ^ 0x5bd1e995);
   const events: WorkflowHistoryEvent[] = [];
@@ -928,18 +842,6 @@ export function getMockWorkflowHistory(workflowId: string, count = 9): WorkflowH
   }
   return events;
 }
-
-/* ------------------------------------------------------------------ *
- * Audience lists — the "Lists" tab on the Workflows page
- * (app/workflows/page.tsx), sitting alongside the workflows table the
- * same way it does in the real client's own workflows module (see
- * lib/types.ts's AudienceList doc comment for how these are meant to
- * relate to a workflow condition's `is_in_list` operator). Names below
- * are the kind of reusable value sets a merchant's risk/ops team would
- * actually maintain — a mix of country-code, BIN, and customer-id
- * lists — sized small since these are hand-curated allow/deny sets,
- * not a bulk data table like payments/customers.
- * ------------------------------------------------------------------ */
 
 const AUDIENCE_LIST_SEEDS: Array<{ name: string; type: AudienceListType; entryCount: number }> = [
   { name: "High-risk countries", type: "country", entryCount: 14 },
@@ -974,18 +876,6 @@ export function getMockAudienceLists(): AudienceList[] {
   return cachedAudienceLists;
 }
 
-/* ------------------------------------------------------------------ *
- * Checkout — initial methods list for the Checkout configurator
- * (app/checkout/page.tsx / lib/checkout-store.ts). Card starts enabled
- * and locked (mirrors the real client's "can't be fully disabled"
- * rule); every other method starts disabled, matching the real
- * client's own default-methods list
- * (checkout.constant.tsx#initialPaymentMethods). Not currency/random —
- * this is a fixed starting *shape* the store then mutates locally, not
- * a randomized fixture, so there is no mulberry32 seed here unlike the
- * tables above.
- * ------------------------------------------------------------------ */
-
 let checkoutMethodIdCounter = 0;
 export function nextCheckoutId(prefix: string): string {
   checkoutMethodIdCounter += 1;
@@ -996,10 +886,6 @@ function defaultMerchantSplit(processor: ProcessorId = "stripe"): CheckoutProces
   return [{ id: nextCheckoutId("split"), processor, sharePercent: 100 }];
 }
 
-/** One condition block seeded on Card by default, so the configurator
- *  opens with a non-empty, immediately-editable example of the
- *  reorderable condition-block UI (the real client's own Card
- *  conditions panel is rarely truly empty in a live account either). */
 function defaultCardConditionBlocks(): CheckoutConditionBlock[] {
   return [
     {
@@ -1020,11 +906,7 @@ export function getInitialCheckoutMethods(): CheckoutMethod[] {
     { type: "paypal", label: CHECKOUT_METHOD_LABELS.paypal, enabled: true, locked: false },
     { type: "apple_pay", label: CHECKOUT_METHOD_LABELS.apple_pay, enabled: true, locked: false },
     { type: "google_pay", label: CHECKOUT_METHOD_LABELS.google_pay, enabled: false, locked: false },
-    // Cash App isn't implemented yet — permanently disabled and locked
-    // (the enable switch is disabled the same way Card's always-on
-    // switch is, just in the opposite direction: "always off, can't be
-    // enabled" instead of "always on, can't be disabled"). Venmo was
-    // removed from this product entirely, not just deprioritized.
+
     { type: "cash_app", label: CHECKOUT_METHOD_LABELS.cash_app, enabled: false, locked: true },
   ];
 
@@ -1037,14 +919,6 @@ export function getInitialCheckoutMethods(): CheckoutMethod[] {
   }));
 }
 
-/** A method is flagged "invalid" (red-tinted row) when it's enabled but
- *  its fixed country/currency requirement (CHECKOUT_METHOD_COUNTRY_LOCKS)
- *  isn't satisfiable from its own condition blocks/merchant split — in
- *  this simplified mock model, that's approximated as "enabled, has a
- *  hard country/currency lock, AND its condition blocks explicitly
- *  restrict to a country outside that lock." Mirrors the real client's
- *  own invalidMethodTypes concept (methods-list-item.service) without
- *  needing a real merchant-country/currency lookup. */
 export function isCheckoutMethodInvalid(method: CheckoutMethod): boolean {
   if (!method.enabled) return false;
   const lock = CHECKOUT_METHOD_COUNTRY_LOCKS[method.type];

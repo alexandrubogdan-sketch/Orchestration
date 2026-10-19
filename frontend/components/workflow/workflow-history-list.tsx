@@ -6,19 +6,6 @@ import { getMockWorkflowHistory } from "@/lib/mock-data";
 import type { WorkflowHistoryEventType } from "@/lib/types";
 import { formatDateTime, getInitials } from "@/lib/utils";
 
-/**
- * "History" tab on the workflow detail page — mirrors the real
- * client's WorkflowHistoryComponent (module/workflow (singular) —
- * element/history/workflow-history.component.tsx), which renders a
- * TableComponent of workflow_versions rows (version/status/author/
- * date_published — see workflow-history.service.ts's
- * workflowHistoryColumns). This is a simpler reverse-chronological
- * list/table rather than a full data-grid, per this task's brief, but
- * keeps the same fields: a version label, a human-readable change
- * description, the actor, and a timestamp. Data comes from
- * lib/mock-data.ts#getMockWorkflowHistory.
- */
-
 const EVENT_ICONS: Record<WorkflowHistoryEventType, typeof CheckCircle2> = {
   published: CheckCircle2,
   draft_saved: FileText,

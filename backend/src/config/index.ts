@@ -26,14 +26,13 @@ export interface AppConfig {
     tlsStrategy: Env['HATCHET_CLIENT_TLS_STRATEGY'];
   };
   stripe: {
-    /** ADR-0005: which mode THIS PROCESS's env-var credentials belong to. */
     mode: Env['STRIPE_MODE'];
     secretKey: string;
     publishableKey: string;
     webhookSecret: string;
     apiVersion: string;
   };
-  /** Milestone 8, T8.5/ADR-0011 — the second PSP. All credential fields optional; see schema.ts. */
+
   solidgate: {
     mode: Env['SOLIDGATE_MODE'];
     publicKey: string | undefined;
@@ -53,11 +52,6 @@ export interface AppConfig {
 
 let cached: AppConfig | undefined;
 
-/**
- * Parses and validates process.env once (memoized). Throws
- * ConfigValidationError with every failing field listed, not just the
- * first — a boot failure should tell you everything wrong in one shot.
- */
 export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
   if (cached) return cached;
 
@@ -112,7 +106,6 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): AppConfig {
   return cached;
 }
 
-/** Test-only escape hatch: clears the memoized config between test cases. */
 export function __resetConfigForTests(): void {
   cached = undefined;
 }

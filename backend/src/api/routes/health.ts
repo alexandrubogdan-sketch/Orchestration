@@ -17,15 +17,6 @@ interface ReadyChecks {
   redis: DependencyStatus;
 }
 
-/**
- * /healthz: process is up and can serve traffic (no dependency checks —
- * used by container orchestrators for liveness, should never flap due to
- * a downstream outage).
- *
- * /readyz: process is up AND its hard dependencies (Postgres, Redis) are
- * reachable — used for readiness gating (load balancer / rollout checks).
- * Returns 503 with the specific failing dependency, never masks it.
- */
 export function registerHealthRoutes(app: FastifyInstance, deps: HealthDeps): void {
   app.get('/healthz', () => ({ status: 'ok' }));
 

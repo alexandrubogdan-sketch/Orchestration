@@ -15,6 +15,7 @@ import {
   Users2,
   PanelsTopLeft,
   Bot,
+  KeyRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -32,11 +33,13 @@ const NAV_ITEMS = [
   { href: "/workflows", label: "Workflows", icon: Workflow },
   { href: "/risk-monitoring", label: "Risk Monitoring", icon: ShieldAlert },
   { href: "/agents", label: "AI Agents", icon: Bot },
+  { href: "/developers", label: "Developers", icon: KeyRound },
   { href: "/docs", label: "Docs", icon: BookOpen },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
+  if (pathname === "/docs" || pathname.startsWith("/docs/")) return null;
 
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-border bg-surface">

@@ -1,6 +1,3 @@
-# T7.2. Scrapes both processes' /metrics endpoints. Referenced by
-# docker-compose.observability.yml; when run outside that compose
-# network, replace `api`/`worker` with the real hostnames.
 global:
   scrape_interval: 15s
   evaluation_interval: 15s

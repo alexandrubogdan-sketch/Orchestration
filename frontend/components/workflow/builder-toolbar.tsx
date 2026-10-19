@@ -14,12 +14,7 @@ export function BuilderToolbar({ workflowId }: { workflowId: string }) {
   const workflow = useWorkflowStore((s) => s.workflows.find((w) => w.id === workflowId));
   const setWorkflowState = useWorkflowStore((s) => s.setWorkflowState);
   const [jsonOpen, setJsonOpen] = useState(false);
-  // Every edit already commits straight to the store (no separate
-  // draft/dirty buffer), so "Save" here means "confirm the current state
-  // as a draft/published snapshot" — this brief checkmark (or, if the
-  // workflow doesn't yet end every path in Settle/Block, an error
-  // instead) is the feedback loop that mental model needs, since there's
-  // no unsaved-changes badge to watch instead.
+
   const [statusLabel, setStatusLabel] = useState<{ text: string; tone: "success" | "error" } | null>(null);
   const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

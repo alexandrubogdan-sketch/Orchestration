@@ -118,8 +118,6 @@ describe('MockAdapter — timeout-after-success (T2.6 scenario)', () => {
 
     await expect(adapter.createPayment(input)).rejects.toThrow(MockTimeoutError);
 
-    // Retrying with the SAME idempotency key returns the already-stored
-    // success instead of creating a second attempt.
     const retryResult = await adapter.createPayment(input);
     expect(retryResult.status).toBe('captured');
 
@@ -135,7 +133,7 @@ describe('MockAdapter — idempotency replay', () => {
     const first = await adapter.createPayment(input);
     const second = await adapter.createPayment(input);
     expect(second.pspAttemptRef).toBe(first.pspAttemptRef);
-    // Only one webhook should have been enqueued, not two.
+
     expect(adapter.drainWebhooks()).toHaveLength(1);
   });
 });
@@ -273,7 +271,7 @@ describe('MockAdapter — listSettlements / listPayouts (Milestone 6, T6.2)', ()
 
     const settlements = await adapter.listSettlements(new Date(0).toISOString());
     const payouts = await adapter.listPayouts(new Date(0).toISOString());
-    expect(payouts).toHaveLength(1); // both settled "today" in this test run
+    expect(payouts).toHaveLength(1);
     expect(payouts[0]!.status).toBe('paid');
 
     const expectedNet = settlements.reduce(

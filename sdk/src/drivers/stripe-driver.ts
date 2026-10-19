@@ -1,24 +1,3 @@
-/**
- * Real Stripe.js integration.
- *
- * IMPORTANT — why this driver dynamically injects a <script
- * src="https://js.stripe.com/v3"> tag instead of importing/bundling
- * @stripe/stripe-js's runtime: Stripe's own documentation requires
- * loading stripe.js directly from https://js.stripe.com so that
- * Stripe can ship security patches to every integration
- * instantaneously and so Stripe can fingerprint/monitor the script
- * for fraud signals. Self-hosting or bundling stripe.js is explicitly
- * against Stripe's terms of use AND breaks PCI SAQ A eligibility for
- * any merchant using this SDK — SAQ A's reduced scope depends on the
- * cardholder-data-handling script being loaded fresh from Stripe's
- * own origin on every page load, not vendored into a merchant's
- * bundle. See https://docs.stripe.com/security/guide and
- * https://docs.stripe.com/js/including for the canonical statements
- * of this requirement. This is why @stripe/stripe-js is listed as an
- * OPTIONAL peerDependency (types only, see stripe-types.ts) rather
- * than a regular dependency: we want its TypeScript types without
- * ever pulling its runtime into this package's bundle.
- */
 import { toStripeAppearance, type Appearance } from "../appearance";
 import type { PublicConfig } from "../http";
 import type {
@@ -38,11 +17,6 @@ const STRIPE_JS_URL = "https://js.stripe.com/v3";
 
 let stripeScriptLoadPromise: Promise<void> | null = null;
 
-/**
- * Injects the Stripe.js <script> tag exactly once per page (even
- * across multiple loadCheckout() calls) and resolves once
- * `window.Stripe` is available.
- */
 function loadStripeScript(): Promise<void> {
   if (typeof window !== "undefined" && window.Stripe) {
     return Promise.resolve();
@@ -57,7 +31,9 @@ function loadStripeScript(): Promise<void> {
     );
     if (existing) {
       existing.addEventListener("load", () => resolve());
-      existing.addEventListener("error", () => reject(new Error("Failed to load Stripe.js")));
+      existing.addEventListener("error", () =>
+        reject(new Error("Failed to load Stripe.js")),
+      );
       if (window.Stripe) {
         resolve();
       }
@@ -68,7 +44,9 @@ function loadStripeScript(): Promise<void> {
     script.src = STRIPE_JS_URL;
     script.async = true;
     script.addEventListener("load", () => resolve());
-    script.addEventListener("error", () => reject(new Error("Failed to load Stripe.js")));
+    script.addEventListener("error", () =>
+      reject(new Error("Failed to load Stripe.js")),
+    );
     document.head.appendChild(script);
   });
 
@@ -76,12 +54,17 @@ function loadStripeScript(): Promise<void> {
 }
 
 class StripeCardHandle implements CardHandle {
-  private readonly listeners = new Set<(state: CardElementChangeState) => void>();
+  private readonly listeners = new Set<
+    (state: CardElementChangeState) => void
+  >();
   private state: CardElementChangeState = { complete: false, empty: true };
   readonly element: StripeCardElement;
   private readonly mountPoint: HTMLElement;
 
-  constructor(elements: ReturnType<StripeClient["elements"]>, container: HTMLElement) {
+  constructor(
+    elements: ReturnType<StripeClient["elements"]>,
+    container: HTMLElement,
+  ) {
     this.mountPoint = document.createElement("div");
     container.appendChild(this.mountPoint);
     this.element = elements.create("card");
@@ -124,28 +107,39 @@ export class StripeDriver implements Driver {
     await loadStripeScript();
     const StripeCtor = window.Stripe;
     if (!StripeCtor) {
-      throw new Error("Stripe.js failed to load: window.Stripe is unavailable.");
+      throw new Error(
+        "Stripe.js failed to load: window.Stripe is unavailable.",
+      );
     }
     this.stripe = StripeCtor(publicConfig.publishableKey);
   }
 
   private ensureStripe(): StripeClient {
     if (!this.stripe) {
-      throw new Error("StripeDriver.init() must complete before mounting elements.");
+      throw new Error(
+        "StripeDriver.init() must complete before mounting elements.",
+      );
     }
     return this.stripe;
   }
 
-  private ensureElements(appearance: Appearance | undefined): ReturnType<StripeClient["elements"]> {
+  private ensureElements(
+    appearance: Appearance | undefined,
+  ): ReturnType<StripeClient["elements"]> {
     const stripe = this.ensureStripe();
     if (!this.elements || this.appearance !== appearance) {
       this.appearance = appearance;
-      this.elements = stripe.elements({ appearance: toStripeAppearance(appearance) });
+      this.elements = stripe.elements({
+        appearance: toStripeAppearance(appearance),
+      });
     }
     return this.elements;
   }
 
-  mountCard(container: HTMLElement, appearance: Appearance | undefined): CardHandle {
+  mountCard(
+    container: HTMLElement,
+    appearance: Appearance | undefined,
+  ): CardHandle {
     const elements = this.ensureElements(appearance);
     return new StripeCardHandle(elements, container);
   }
@@ -153,7 +147,9 @@ export class StripeDriver implements Driver {
   async tokenize(cardHandle: CardHandle): Promise<TokenizeResult> {
     const stripe = this.ensureStripe();
     if (!(cardHandle instanceof StripeCardHandle)) {
-      return { error: "This card element was not created by the Stripe driver." };
+      return {
+        error: "This card element was not created by the Stripe driver.",
+      };
     }
     const result = await stripe.createPaymentMethod({
       type: "card",
@@ -178,13 +174,6 @@ export class StripeDriver implements Driver {
     return { success: true };
   }
 
-  /**
-   * Stripe-specific express-checkout support, used by
-   * elements/express-checkout-element.ts. Not part of the generic
-   * Driver interface because PaymentRequest construction needs
-   * amount/currency/country, which the generic Driver contract
-   * doesn't carry.
-   */
   createPaymentRequest(options: {
     country: string;
     currency: string;

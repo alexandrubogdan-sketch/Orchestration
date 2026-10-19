@@ -38,19 +38,23 @@ describe('computeRequestHash', () => {
 
 describe('requireIdempotencyKey', () => {
   it('extracts a valid header', () => {
-    expect(requireIdempotencyKey({ 'idempotency-key': 'abc-123' })).toBe('abc-123');
+    expect(requireIdempotencyKey({ 'idempotency-key': 'abc-123' }, 'product-a')).toBe(
+      'product-a:abc-123',
+    );
   });
 
   it('takes the first value if the header was sent multiple times', () => {
-    expect(requireIdempotencyKey({ 'idempotency-key': ['first', 'second'] })).toBe('first');
+    expect(requireIdempotencyKey({ 'idempotency-key': ['first', 'second'] }, 'product-a')).toBe(
+      'product-a:first',
+    );
   });
 
   it('throws MissingIdempotencyKeyError when absent', () => {
-    expect(() => requireIdempotencyKey({})).toThrow(MissingIdempotencyKeyError);
+    expect(() => requireIdempotencyKey({}, 'product-a')).toThrow(MissingIdempotencyKeyError);
   });
 
   it('throws MissingIdempotencyKeyError for an empty/whitespace-only header', () => {
-    expect(() => requireIdempotencyKey({ 'idempotency-key': '   ' })).toThrow(
+    expect(() => requireIdempotencyKey({ 'idempotency-key': '   ' }, 'product-a')).toThrow(
       MissingIdempotencyKeyError,
     );
   });

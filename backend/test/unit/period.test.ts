@@ -35,11 +35,7 @@ describe('addInterval', () => {
     for (let i = 0; i < 12; i++) {
       date = addInterval(date, 'month', 1);
     }
-    // 12 successive +1-month steps from Jan 31 do NOT necessarily land
-    // back on the 31st every time (Feb/Apr/Jun/... clamp), which is
-    // the expected, correct behavior for calendar-month billing — this
-    // test documents that rather than asserting a naive "same day
-    // every year" claim that wouldn't actually be true.
+
     expect(iso(date)).toBe('2027-01-28');
   });
 

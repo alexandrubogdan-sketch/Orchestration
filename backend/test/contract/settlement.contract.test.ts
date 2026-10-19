@@ -8,23 +8,6 @@ import {
   normalizeStripePayout,
 } from '../../src/adapters/stripe/settlementMapping.js';
 
-/**
- * T6.5: "Tests: golden settlement file fixtures incl. deliberate
- * mismatch cases." These fixtures are hand-constructed from Stripe's
- * public API reference (balance_transaction/payout object shapes) —
- * see settlementMapping.ts's docblock for why they're not recorded
- * from a live account (none is reachable from this build environment).
- *
- * "Deliberate mismatch cases" here means: a fee line with no
- * `source` (can't be tied to an attempt) and a balance-transaction
- * `type` this codebase doesn't have a use for yet — both are asserted
- * to be DROPPED (return `undefined`), not mis-mapped into something
- * that looks like a real settlement line, per docs/design.md's "encode
- * ambiguity, don't guess" convention. test/integration/reconciliation.test.ts
- * covers the "matches or doesn't match our own transactions" half of
- * T6.5 against real Postgres.
- */
-
 const goldenDir = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   'golden',
@@ -54,7 +37,7 @@ describe('normalizeStripeBalanceTransaction', () => {
     const record = normalizeStripeBalanceTransaction(bt);
     expect(record?.type).toBe('refund');
     expect(record?.pspAttemptRef).toBe('pi_1CAPTUREINTENT');
-    expect(record?.amount.minorUnits).toBe(500); // never negative — see Money
+    expect(record?.amount.minorUnits).toBe(500);
     expect(record?.feeAmount).toBeUndefined();
   });
 

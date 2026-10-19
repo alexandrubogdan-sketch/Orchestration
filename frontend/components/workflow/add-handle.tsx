@@ -23,14 +23,6 @@ const ACTION_ICONS: Record<string, React.ReactNode> = {
   delay: <ClockPlus className="h-3.5 w-3.5 text-foreground" />,
 };
 
-/**
- * Hover "+" insert affordance on a node's handle — the real client's
- * signature interaction for extending the canvas without dragging
- * from the sidebar (canvas-node/element/add-handle). Only rendered
- * when `showButton` is true (i.e. this handle has no outgoing/incoming
- * connection yet — see nodes.tsx's isEdgeConnected checks), so a
- * handle that's already wired just shows the plain connector dot.
- */
 export function AddHandleComponent({
   type,
   position,
